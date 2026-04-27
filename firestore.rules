@@ -1,0 +1,114 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Helpers ──────────────────────────────────────────────────────
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth.uid == uid;
+    }
+
+    function memberDocId(sessionId) {
+      return sessionId + '_' + request.auth.uid;
+    }
+
+    function isSessionMember(sessionId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/session_members/$(memberDocId(sessionId)));
+    }
+
+    function isSessionHost(sessionId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/session_members/$(memberDocId(sessionId))).data.role == 'host';
+    }
+
+    function isValidSession() {
+      let d = request.resource.data;
+      return d.title is string && d.title.size() > 0
+        && d.subject is string
+        && d.capacity is int && d.capacity >= 1 && d.capacity <= 50
+        && d.start_time is timestamp
+        && d.end_time is timestamp
+        && d.end_time > d.start_time
+        && d.status in ['open', 'full', 'in_progress', 'ended']
+        && d.is_public is bool;
+    }
+
+    // ── USERS ────────────────────────────────────────────────────────
+    match /users/{uid} {
+      allow read:   if isSignedIn();
+      allow create: if isOwner(uid)
+                    && request.resource.data.uid == uid;
+      allow update: if isOwner(uid)
+                    && request.resource.data.uid == uid;
+      allow delete: if false;
+    }
+
+    // ── SESSIONS ─────────────────────────────────────────────────────
+    match /sessions/{sessionId} {
+      allow read: if isSignedIn() &&
+        (resource.data.is_public == true || isSessionMember(sessionId));
+
+      allow create: if isSignedIn()
+                    && isValidSession()
+                    && request.resource.data.host_uid == request.auth.uid
+                    && request.resource.data.member_count == 1;
+
+      allow update: if isSessionHost(sessionId)
+                    && request.resource.data.host_uid == resource.data.host_uid;
+
+      allow delete: if isSessionHost(sessionId);
+
+      // ── Messages subcollection ──────────────────────────────────
+      match /messages/{messageId} {
+        allow read:   if isSessionMember(sessionId);
+        allow create: if isSessionMember(sessionId)
+                      && request.resource.data.sender_uid == request.auth.uid
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() <= 2000;
+        allow update: if false;
+        allow delete: if isSessionHost(sessionId)
+                      || request.auth.uid == resource.data.sender_uid;
+      }
+
+      // ── Files subcollection ─────────────────────────────────────
+      match /files/{fileId} {
+        allow read:   if isSessionMember(sessionId);
+        allow create: if isSessionMember(sessionId)
+                      && request.resource.data.uploader_uid == request.auth.uid;
+        allow update: if false;
+        allow delete: if isSessionHost(sessionId)
+                      || request.auth.uid == resource.data.uploader_uid;
+      }
+    }
+
+    // ── SESSION MEMBERS ───────────────────────────────────────────────
+    // Document ID: {sessionId}_{uid}
+    match /session_members/{memberId} {
+      allow read: if isSignedIn();
+
+      allow create: if isSignedIn()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.role == 'member'
+                    && memberId == request.resource.data.session_id + '_' + request.auth.uid;
+
+      allow update: if isSessionHost(resource.data.session_id)
+                    || isOwner(resource.data.uid);
+
+      allow delete: if isOwner(resource.data.uid)
+                    || isSessionHost(resource.data.session_id);
+    }
+
+    // ── CALENDAR EVENTS ───────────────────────────────────────────────
+    match /calendar_events/{eventId} {
+      allow read:   if isSignedIn() && isOwner(resource.data.uid);
+      allow create: if isSignedIn()
+                    && request.resource.data.uid == request.auth.uid;
+      allow update: if isOwner(resource.data.uid);
+      allow delete: if isOwner(resource.data.uid);
+    }
+  }
+}

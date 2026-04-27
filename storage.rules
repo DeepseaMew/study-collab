@@ -1,0 +1,27 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ── Avatars ───────────────────────────────────────────────────────
+    // Path: avatars/{uid}/profile.jpg
+    match /avatars/{uid}/{fileName} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && request.auth.uid == uid
+                   && request.resource.size < 5 * 1024 * 1024
+                   && request.resource.contentType.matches('image/.*');
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Session files ─────────────────────────────────────────────────
+    // Path: sessions/{sessionId}/{fileName}
+    // Note: membership is enforced in Firestore; Storage rule trusts signed-in user.
+    // For stricter enforcement, use a Cloud Function to generate signed URLs instead.
+    match /sessions/{sessionId}/{fileName} {
+      allow read:  if request.auth != null;
+      allow write: if request.auth != null
+                   && request.resource.size < 20 * 1024 * 1024;
+      allow delete: if request.auth != null;
+    }
+  }
+}
