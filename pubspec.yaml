@@ -38,7 +38,14 @@ dependencies:
   firebase_analytics: ^11.3.0
   firebase_remote_config: ^5.1.0
   cupertino_icons: ^1.0.8
-
+  
+  # State management
+  flutter_riverpod: ^2.5.1
+  
+  # Helps make immutable models cleaner — we'll use it later
+  # but adding now so it's there
+  equatable: ^2.0.5
+  
 dev_dependencies:
   flutter_test:
     sdk: flutter
