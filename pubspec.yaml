@@ -45,6 +45,7 @@ dependencies:
   # Helps make immutable models cleaner — we'll use it later
   # but adding now so it's there
   equatable: ^2.0.5
+  go_router: ^17.2.3
   
 dev_dependencies:
   flutter_test:
