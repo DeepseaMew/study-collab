@@ -29,6 +29,25 @@ enum Subject {
   }
 }
 
+enum AcademicLevel {
+  undergraduate,
+  postgraduate;
+
+  String get displayName {
+    switch (this) {
+      case AcademicLevel.undergraduate: return 'Undergraduate';
+      case AcademicLevel.postgraduate:  return 'Postgraduate';
+    }
+  }
+
+  static AcademicLevel fromString(String? value) {
+    return AcademicLevel.values.firstWhere(
+      (l) => l.name == value,
+      orElse: () => AcademicLevel.undergraduate,
+    );
+  }
+}
+
 enum SessionStatus {
   upcoming,
   ongoing,

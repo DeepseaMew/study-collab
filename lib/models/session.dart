@@ -20,6 +20,9 @@ class Session {
   final bool reviewsEnabled;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final String? passwordHash;
+  final int? studentYear;
+  final AcademicLevel? academicLevel;
 
   const Session({
     required this.id,
@@ -40,11 +43,14 @@ class Session {
     this.reviewsEnabled = true,
     required this.createdAt,
     required this.updatedAt,
+    this.passwordHash,
+    this.studentYear,
+    this.academicLevel,
   });
 
   bool get isFull => participantCount >= capacity;
   int get spotsLeft => capacity - participantCount;
-  bool get isPasswordProtected => visibility == SessionVisibility.private;
+  bool get isPasswordProtected => passwordHash != null && passwordHash!.isNotEmpty;
   bool get requiresApproval => joinApproval == JoinApproval.hostApproval;
 
   factory Session.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -69,6 +75,11 @@ class Session {
       reviewsEnabled: data['reviewsEnabled'] as bool? ?? true,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
+      passwordHash: data['passwordHash'] as String?,
+      studentYear: (data['studentYear'] as num?)?.toInt(),
+      academicLevel: data['academicLevel'] == null
+          ? null
+          : AcademicLevel.fromString(data['academicLevel'] as String?),
     );
   }
 
@@ -91,8 +102,13 @@ class Session {
       'reviewsEnabled': reviewsEnabled,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
+      if (passwordHash != null) 'passwordHash': passwordHash!, // ignore: use_null_aware_elements
+      if (studentYear != null) 'studentYear': studentYear!, // ignore: use_null_aware_elements
+      if (academicLevel != null) 'academicLevel': academicLevel!.name,
     };
   }
+
+  static const Object _sentinel = Object();
 
   Session copyWith({
     String? title,
@@ -110,6 +126,9 @@ class Session {
     SessionStatus? status,
     bool? reviewsEnabled,
     DateTime? updatedAt,
+    Object? passwordHash = _sentinel,
+    Object? studentYear = _sentinel,
+    Object? academicLevel = _sentinel,
   }) {
     return Session(
       id: id,
@@ -130,6 +149,15 @@ class Session {
       reviewsEnabled: reviewsEnabled ?? this.reviewsEnabled,
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
+      passwordHash: identical(passwordHash, _sentinel)
+          ? this.passwordHash
+          : passwordHash as String?,
+      studentYear: identical(studentYear, _sentinel)
+          ? this.studentYear
+          : studentYear as int?,
+      academicLevel: identical(academicLevel, _sentinel)
+          ? this.academicLevel
+          : academicLevel as AcademicLevel?,
     );
   }
 }

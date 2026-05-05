@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'enums.dart';
 
 class AppUser {
   final String id;
@@ -6,10 +7,11 @@ class AppUser {
   final String username;
   final String bio;
   final String? profilePhotoUrl;
+  final AcademicLevel academicLevel;
+  final int studentYear;          
+  final String faculty;           
   final int friendsCount;
   final int sessionsCount;
-  final double averageRating;
-  final int reviewCount;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -19,13 +21,19 @@ class AppUser {
     required this.username,
     this.bio = '',
     this.profilePhotoUrl,
+    this.academicLevel = AcademicLevel.undergraduate,
+    this.studentYear = 1,
+    this.faculty = '',
     this.friendsCount = 0,
     this.sessionsCount = 0,
-    this.averageRating = 0.0,
-    this.reviewCount = 0,
     required this.createdAt,
     required this.updatedAt,
   });
+
+  /// Max year allowed based on academic level.
+  /// Undergrad: 1–4, Postgrad: 1–2.
+  static int maxYearFor(AcademicLevel level) =>
+      level == AcademicLevel.postgraduate ? 2 : 4;
 
   factory AppUser.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
@@ -36,10 +44,11 @@ class AppUser {
       username: data['username'] as String? ?? '',
       bio: data['bio'] as String? ?? '',
       profilePhotoUrl: data['profilePhotoUrl'] as String?,
+      academicLevel: AcademicLevel.fromString(data['academicLevel'] as String?),
+      studentYear: data['studentYear'] as int? ?? 1,
+      faculty: data['faculty'] as String? ?? '',
       friendsCount: data['friendsCount'] as int? ?? 0,
       sessionsCount: data['sessionsCount'] as int? ?? 0,
-      averageRating: (data['averageRating'] as num?)?.toDouble() ?? 0.0,
-      reviewCount: data['reviewCount'] as int? ?? 0,
       createdAt: (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
       updatedAt: (data['updatedAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
     );
@@ -51,10 +60,11 @@ class AppUser {
       'username': username,
       'bio': bio,
       'profilePhotoUrl': profilePhotoUrl,
+      'academicLevel': academicLevel.name,
+      'studentYear': studentYear,
+      'faculty': faculty,
       'friendsCount': friendsCount,
       'sessionsCount': sessionsCount,
-      'averageRating': averageRating,
-      'reviewCount': reviewCount,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };
@@ -65,10 +75,11 @@ class AppUser {
     String? username,
     String? bio,
     String? profilePhotoUrl,
+    AcademicLevel? academicLevel,
+    int? studentYear,
+    String? faculty,
     int? friendsCount,
     int? sessionsCount,
-    double? averageRating,
-    int? reviewCount,
     DateTime? updatedAt,
   }) {
     return AppUser(
@@ -77,10 +88,11 @@ class AppUser {
       username: username ?? this.username,
       bio: bio ?? this.bio,
       profilePhotoUrl: profilePhotoUrl ?? this.profilePhotoUrl,
+      academicLevel: academicLevel ?? this.academicLevel,
+      studentYear: studentYear ?? this.studentYear,
+      faculty: faculty ?? this.faculty,
       friendsCount: friendsCount ?? this.friendsCount,
       sessionsCount: sessionsCount ?? this.sessionsCount,
-      averageRating: averageRating ?? this.averageRating,
-      reviewCount: reviewCount ?? this.reviewCount,
       createdAt: createdAt,
       updatedAt: updatedAt ?? DateTime.now(),
     );
