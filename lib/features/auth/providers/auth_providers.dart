@@ -1,12 +1,12 @@
-import 'package:firebase_auth/firebase_auth.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../models/app_user.dart';
 import '../../../services/auth_service.dart';
 
 /// Streams Firebase auth state — fires on sign in / sign out
-final authStateProvider = StreamProvider<User?>((ref) {
-  return ref.watch(authServiceProvider).authStateChanges();
+final authStateProvider = StreamProvider<AppUser?>((ref) {
+  return ref.watch(authServiceProvider).authStateChanges;
 });
 
 /// Full AppUser profile from Firestore — null if signed out

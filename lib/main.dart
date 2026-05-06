@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'core/router/app_router.dart';
+import 'core/theme/app_theme.dart';
 import 'firebase_options.dart';
 
 void main() async {
@@ -26,12 +27,9 @@ class StudyCollabApp extends ConsumerWidget {
     return MaterialApp.router(
       title: 'Study Collab',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF7C5CFC),
-        ),
-        useMaterial3: true,
-      ),
+      theme: AppTheme.light,
+      // darkTheme: AppTheme.dark,        // uncomment when you want dark mode
+      // themeMode: ThemeMode.system,     // and add this line
       routerConfig: router,
     );
   }

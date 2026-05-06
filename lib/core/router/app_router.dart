@@ -1,95 +1,119 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../features/auth/providers/auth_providers.dart';
+import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
-import '../../features/auth/screens/splash_screen.dart';
-import '../../features/home/screens/home_screen.dart';
-import '../../services/auth_service.dart';
-import '../constants/route_names.dart';
+import '../../features/dashboard/screens/dashboard_screen.dart';
 
+// TODO: uncomment imports as screens are built
+// import '../../features/dashboard/screens/dashboard_screen.dart';
+// import '../../features/calendar/screens/calendar_screen.dart';
+// import '../../features/my_sessions/screens/my_sessions_screen.dart';
+// import '../../features/messaging/screens/messages_screen.dart';
+// import '../../features/messaging/screens/dm_screen.dart';
+// import '../../features/profile/screens/profile_screen.dart';
+// import '../../features/profile/screens/other_user_profile_screen.dart';
+// import '../../features/notifications/screens/notifications_screen.dart';
+// import '../../features/settings/screens/settings_screen.dart';
+// import '../../features/session/screens/create_session_screen.dart';
+// import '../../features/session/screens/edit_session_screen.dart';
+// import '../../features/session/screens/session_detail_screen.dart';
+// import '../../features/session/screens/members_list_screen.dart';
+// import '../../features/session/screens/chat_screen.dart';
+// import '../../features/session/screens/notes_screen.dart';
+// import '../../features/session/screens/requests_screen.dart';
+// import '../widgets/main_shell.dart';
+
+/// Riverpod provider for the app router.
+///
+/// Wrapping the router in a provider lets us add auth-aware redirects later
+/// by reading the auth state inside the router (e.g. ref.watch(authStateProvider)).
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
-    initialLocation: RouteNames.splash,
-    debugLogDiagnostics: true,
-
-    redirect: (context, state) {
-      final authState = ref.read(authStateProvider);
-      if (authState.isLoading) return null;
-
-      final isAuthenticated = authState.value != null;
-      final location = state.matchedLocation;
-
-      final authRoutes = [
-        RouteNames.splash,
-        RouteNames.login,
-        RouteNames.signup,
-      ];
-      final isOnAuthRoute = authRoutes.contains(location);
-
-      if (!isAuthenticated && !isOnAuthRoute) return RouteNames.login;
-      if (isAuthenticated && isOnAuthRoute) return RouteNames.home;
-
-      return null;
-    },
-
-    refreshListenable: GoRouterRefreshStream(
-      ref.read(authServiceProvider).authStateChanges(),
-    ),
-
+    initialLocation: '/splash',
     routes: [
-      // ── Auth ──────────────────────────────────────────────────
+      // ── Auth flow ──────────────────────────────────────────────────────────
       GoRoute(
-        path: RouteNames.splash,
+        path: '/splash',
         builder: (context, state) => const SplashScreen(),
       ),
       GoRoute(
-        path: RouteNames.login,
+        path: '/login',
         builder: (context, state) => const LoginScreen(),
       ),
       GoRoute(
-        path: RouteNames.signup,
+        path: '/signup',
         builder: (context, state) => const SignupScreen(),
       ),
 
-      // ── Home (placeholder — real UI replaces this) ────────────
+      // ── Home placeholder ─────────────────────────────────────────────────
+      // Will be replaced by ShellRoute + DashboardScreen once dashboard is built.
       GoRoute(
-        path: RouteNames.home,
-        builder: (context, state) => const HomeScreen(),
+        path: '/home',
+        builder: (context, state) => const DashboardScreen(),
       ),
 
-      // ── Add routes below as screens are built ─────────────────
-      // RouteNames.calendar    → CalendarScreen
-      // RouteNames.messages    → ChatListScreen
-      // RouteNames.mySessions  → MySessionsScreen
-      // RouteNames.createSession → CreateSessionScreen
-      // RouteNames.sessionDetails → SessionDetailsScreen
-      // RouteNames.chatRoom    → ChatRoomScreen
-      // RouteNames.profile     → ProfileScreen
-      // RouteNames.notifications → NotificationsScreen
-    ],
+      // TODO: replace _HomePlaceholder with the real ShellRoute below
+      // once main_shell.dart and inner screens are built and migrated to Riverpod.
+      //
+      // ShellRoute(
+      //   builder: (c, s, child) => MainShell(child: child),
+      //   routes: [
+      //     GoRoute(path: '/home',        builder: (c, s) => const DashboardScreen()),
+      //     GoRoute(path: '/calendar',    builder: (c, s) => const CalendarScreen()),
+      //     GoRoute(path: '/my-sessions', builder: (c, s) => const MySessionsScreen()),
+      //     GoRoute(path: '/messages',    builder: (c, s) => const MessagesScreen()),
+      //     GoRoute(path: '/profile',     builder: (c, s) => const ProfileScreen()),
+      //   ],
+      // ),
 
-    errorBuilder: (context, state) => Scaffold(
-      body: Center(child: Text('Page not found: ${state.uri}')),
-    ),
+      // TODO: session flows
+      // GoRoute(path: '/create-session', builder: (c, s) => CreateSessionScreen(
+      //   initialDate: s.extra is DateTime ? s.extra as DateTime : null,
+      // )),
+      // GoRoute(path: '/session/:id', builder: (c, s) =>
+      //   SessionDetailScreen(id: s.pathParameters['id']!)),
+      // GoRoute(path: '/session/:id/edit', builder: (c, s) =>
+      //   EditSessionScreen(id: s.pathParameters['id']!)),
+      // GoRoute(path: '/session/:id/members', builder: (c, s) =>
+      //   MembersListScreen(id: s.pathParameters['id']!)),
+      // GoRoute(path: '/session/:id/chat', builder: (c, s) =>
+      //   ChatScreen(sessionId: s.pathParameters['id']!)),
+      // GoRoute(path: '/session/:id/notes', builder: (c, s) =>
+      //   NotesScreen(sessionId: s.pathParameters['id']!)),
+      // GoRoute(path: '/session/:id/requests', builder: (c, s) =>
+      //   RequestsScreen(sessionId: s.pathParameters['id']!)),
+
+      // TODO: profile / messaging / notifications / settings
+      // GoRoute(path: '/user/:id', builder: (c, s) =>
+      //   OtherUserProfileScreen(userId: s.pathParameters['id']!)),
+      // GoRoute(path: '/messages/:id', builder: (c, s) =>
+      //   DmScreen(userId: s.pathParameters['id']!)),
+      // GoRoute(path: '/notifications', builder: (c, s) => const NotificationsScreen()),
+      // GoRoute(path: '/settings',      builder: (c, s) => const SettingsScreen()),
+    ],
   );
 });
 
-class GoRouterRefreshStream extends ChangeNotifier {
-  GoRouterRefreshStream(Stream<dynamic> stream) {
-    notifyListeners();
-    _subscription = stream.listen((_) => notifyListeners());
-  }
-
-  late final StreamSubscription<dynamic> _subscription;
+/// Temporary home screen until the real dashboard is migrated.
+class _HomePlaceholder extends StatelessWidget {
+  const _HomePlaceholder();
 
   @override
-  void dispose() {
-    _subscription.cancel();
-    super.dispose();
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      body: Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Home — TODO\n\nAuth works! Dashboard will replace this screen '
+            'once it is migrated from teammate\'s repo.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    );
   }
 }

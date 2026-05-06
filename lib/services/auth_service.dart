@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/constants/auth_constants.dart';
+//import '../core/constants/auth_constants.dart';
 import '../core/constants/firestore_collections.dart';
 import '../core/errors/app_exceptions.dart';
 import '../models/app_user.dart';
@@ -40,10 +40,8 @@ class AuthService {
       try {
         return await _fetchUserProfile(firebaseUser.uid);
       } on UserProfileNotFoundException {
-        // Profile missing — treat as signed out so the UI can handle it.
         return null;
       } on AppException catch (e) {
-        // Log the error code, never the uid or PII directly in a message.
         debugPrint('[AuthService] authStateChanges error: ${e.code} — ${e.message}');
         return null;
       } catch (e) {
@@ -59,48 +57,37 @@ class AuthService {
 
   /// Creates a new Firebase Auth account and a matching Firestore user document.
   ///
+  /// Required: email, password, username.
+  /// Optional: academicLevel, studentYear, faculty — fall back to defaults
+  ///           (undergraduate / 1 / '') and can be edited later from profile.
+  ///
   /// Throws:
-  /// - [InvalidUniversityEmailException] if [email] is not a university address.
+  /// - [InvalidUniversityEmailException] if [email] is not a university address
+  ///   (currently disabled — see auth_constants for status).
   /// - [AuthException] for any Firebase Auth failure.
   /// - [DataException] if the Firestore write fails (Auth user is rolled back).
-  ///
-  /// On any post-Auth failure the Firebase Auth user is deleted before
-  /// re-throwing, so there are no orphaned Auth accounts.  Note: if the
-  /// rollback itself fails, an orphaned Firebase Auth account may remain.
-  /// See [_tryDeleteAuthUser] for details.
   Future<AppUser> signUp({
     required String email,
     required String password,
     required String username,
-    required AcademicLevel academicLevel,
-    required int studentYear,
-    required String faculty,
+    AcademicLevel academicLevel = AcademicLevel.undergraduate,
+    int studentYear = 1,
+    String faculty = '',
   }) async {
     // 1. Validate email domain.
-    if (!isAllowedUniversityEmail(email)) {
-      throw InvalidUniversityEmailException(
-        'Only university email addresses are accepted '
-        '(${kAllowedEmailDomains.join(", ")}).',
-      );
-    }
+    // TEMP: domain check disabled for testing — re-enable before launch.
+    // TODO: confirm correct KMUTT domain with classmate, then uncomment below.
+    // if (!isAllowedUniversityEmail(email)) {
+    //   throw InvalidUniversityEmailException(
+    //     'Only university email addresses are accepted '
+    //     '(${kAllowedEmailDomains.join(", ")}).',
+    //   );
+    // }
 
-    // 2. Validate student year range.
-    final maxYear = AppUser.maxYearFor(academicLevel);
-    if (studentYear < 1 || studentYear > maxYear) {
-      throw AuthException(
-        'Student year must be between 1 and $maxYear '
-        'for ${academicLevel.displayName} students.',
-        code: 'invalid-student-year',
-      );
-    }
-
-    // All validation above is done before the try block.  The try block only
-    // covers Firebase I/O so every caught exception here originates from Auth
-    // or Firestore — not from the validation guards above.
     UserCredential? credential;
     AppUser? newUser;
     try {
-      // 3. Create Firebase Auth account.
+      // 2. Create Firebase Auth account.
       credential = await _auth.createUserWithEmailAndPassword(
         email: email.trim(),
         password: password,
@@ -108,10 +95,7 @@ class AuthService {
 
       final uid = credential.user!.uid;
 
-      // 4. Write Firestore user document using server timestamps.
-      //    createdAt/updatedAt are supplied explicitly via
-      //    FieldValue.serverTimestamp() to keep the timestamp authoritative
-      //    and consistent across clients.
+      // 3. Write Firestore user document using server timestamps.
       final docData = <String, dynamic>{
         'email': email.trim(),
         'username': username.trim(),
@@ -131,10 +115,8 @@ class AuthService {
           .doc(uid)
           .set(docData);
 
-      // 5. Build the AppUser.  Because server timestamps are not readable back
-      //    from the write result, we use DateTime.now() locally.  The
-      //    authoritative value lives in Firestore and will be read on next
-      //    profile fetch.
+      // 4. Build the AppUser locally. Server timestamps aren't readable from
+      //    the write result — authoritative values live in Firestore.
       final now = DateTime.now();
       newUser = AppUser(
         id: uid,
@@ -147,12 +129,9 @@ class AuthService {
         updatedAt: now,
       );
     } on FirebaseAuthException catch (e) {
-      // Roll back: no Auth user created yet if this path is reached, but guard
-      // anyway in case createUserWithEmailAndPassword partially succeeded.
       await _tryDeleteAuthUser(credential);
       throw AuthException.fromFirebaseCode(e.code);
     } catch (e) {
-      // Firestore write failed — roll back Auth user.
       await _tryDeleteAuthUser(credential);
       throw DataException(
         'Account created but profile could not be saved. Please try again.',
@@ -160,9 +139,7 @@ class AuthService {
       );
     }
 
-    // 6. Update Firebase Auth display name — best-effort; in its own isolated
-    //    try/catch AFTER the main block so a failure here never triggers Auth
-    //    rollback after a successful Firestore write.
+    // 5. Update Firebase Auth display name — best-effort, isolated try/catch.
     try {
       await credential.user!.updateDisplayName(username.trim());
     } catch (_) {
@@ -177,10 +154,6 @@ class AuthService {
   // ---------------------------------------------------------------------------
 
   /// Signs in with [email] and [password], then loads the Firestore profile.
-  ///
-  /// Throws:
-  /// - [AuthException] for any Firebase Auth failure.
-  /// - [UserProfileNotFoundException] if the Firestore doc is missing.
   Future<AppUser> signIn({
     required String email,
     required String password,
@@ -228,8 +201,6 @@ class AuthService {
 
   User? get currentFirebaseUser => _auth.currentUser;
 
-  /// Returns the signed-in [AppUser], or null if nobody is signed in or the
-  /// Firestore document is missing.
   Future<AppUser?> getCurrentAppUser() async {
     final firebaseUser = _auth.currentUser;
     if (firebaseUser == null) return null;
@@ -255,18 +226,11 @@ class AuthService {
     return AppUser.fromFirestore(doc);
   }
 
-  /// Attempts to delete the Firebase Auth user created during a failed signUp.
-  ///
-  /// If the deletion fails, the uid is logged (non-PII — no email or password)
-  /// so the orphaned account can be found and cleaned up manually.  Callers
-  /// should not assume this always succeeds — an orphaned Firebase Auth account
-  /// is possible when this throws.
   Future<void> _tryDeleteAuthUser(UserCredential? credential) async {
     if (credential?.user == null) return;
     try {
       await credential!.user!.delete();
     } catch (e) {
-      // Log uid only — never log email or password.
       debugPrint(
         '[AuthService] WARN: rollback delete failed for uid: '
         '${credential!.user!.uid} — $e',

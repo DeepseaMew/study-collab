@@ -23,6 +23,13 @@ class Session {
   final String? passwordHash;
   final int? studentYear;
   final AcademicLevel? academicLevel;
+  final List<String> hashtags;
+
+  /// Current user's relationship to this session.
+  /// Transient — NOT stored in Firestore. Computed by services when loading
+  /// sessions (e.g. dashboard checks participants + join_requests for the
+  /// current user). Defaults to notJoined when unknown.
+  final JoinStatus myStatus;
 
   const Session({
     required this.id,
@@ -46,12 +53,17 @@ class Session {
     this.passwordHash,
     this.studentYear,
     this.academicLevel,
+    this.hashtags = const [],
+    this.myStatus = JoinStatus.notJoined,
   });
 
   bool get isFull => participantCount >= capacity;
   int get spotsLeft => capacity - participantCount;
-  bool get isPasswordProtected => passwordHash != null && passwordHash!.isNotEmpty;
-  bool get requiresApproval => joinApproval == JoinApproval.hostApproval;
+  bool get isPasswordProtected =>
+      passwordHash != null && passwordHash!.isNotEmpty;
+  bool get requiresApproval =>
+      visibility == SessionVisibility.approval ||
+      joinApproval == JoinApproval.hostApproval;
 
   factory Session.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
@@ -80,6 +92,11 @@ class Session {
       academicLevel: data['academicLevel'] == null
           ? null
           : AcademicLevel.fromString(data['academicLevel'] as String?),
+      hashtags: (data['hashtags'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList() ??
+          const [],
+      // myStatus is transient — never read from Firestore. Computed by services.
     );
   }
 
@@ -105,6 +122,8 @@ class Session {
       if (passwordHash != null) 'passwordHash': passwordHash!, // ignore: use_null_aware_elements
       if (studentYear != null) 'studentYear': studentYear!, // ignore: use_null_aware_elements
       if (academicLevel != null) 'academicLevel': academicLevel!.name,
+      'hashtags': hashtags,
+      // myStatus is intentionally NOT written — it's a per-user computed value.
     };
   }
 
@@ -129,6 +148,8 @@ class Session {
     Object? passwordHash = _sentinel,
     Object? studentYear = _sentinel,
     Object? academicLevel = _sentinel,
+    List<String>? hashtags,
+    JoinStatus? myStatus,
   }) {
     return Session(
       id: id,
@@ -158,6 +179,8 @@ class Session {
       academicLevel: identical(academicLevel, _sentinel)
           ? this.academicLevel
           : academicLevel as AcademicLevel?,
+      hashtags: hashtags ?? this.hashtags,
+      myStatus: myStatus ?? this.myStatus,
     );
   }
 }

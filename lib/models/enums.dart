@@ -1,25 +1,22 @@
-enum Subject {
-  mathematics,
-  computerScience,
-  chemistry,
-  physics,
-  biology,
-  economics,
-  english,
-  other;
+import 'package:flutter/material.dart';
 
-  String get displayName {
-    switch (this) {
-      case Subject.mathematics:     return 'Mathematics';
-      case Subject.computerScience: return 'Computer Science';
-      case Subject.chemistry:       return 'Chemistry';
-      case Subject.physics:         return 'Physics';
-      case Subject.biology:         return 'Biology';
-      case Subject.economics:       return 'Economics';
-      case Subject.english:         return 'English';
-      case Subject.other:           return 'Other';
-    }
-  }
+/// Academic subjects — each carries its own display color so the UI doesn't
+/// need a separate color map. Use `subject.color` in widgets.
+enum Subject {
+  computerScience(Color(0xFF5186CD), 'Computer Science'),
+  mathematics(Color(0xFFE67E22), 'Mathematics'),
+  physics(Color(0xFFE74C3C), 'Physics'),
+  chemistry(Color(0xFF27AE60), 'Chemistry'),
+  biology(Color(0xFF16A085), 'Biology'),
+  literature(Color(0xFF8E44AD), 'Literature'),
+  english(Color(0xFF3498DB), 'English'),
+  economics(Color(0xFF16A085), 'Economics'),
+  other(Color(0xFF7F8C8D), 'Other');
+
+  final Color color;
+  final String displayName;
+
+  const Subject(this.color, this.displayName);
 
   static Subject fromString(String? value) {
     return Subject.values.firstWhere(
@@ -62,8 +59,13 @@ enum SessionStatus {
   }
 }
 
+/// Session visibility:
+/// - public: anyone can see + join instantly
+/// - approval: anyone can see, but join requests need host approval
+/// - private: requires password to join
 enum SessionVisibility {
   public,
+  approval,
   private;
 
   static SessionVisibility fromString(String? value) {
@@ -74,6 +76,8 @@ enum SessionVisibility {
   }
 }
 
+/// Approval mode for join requests — kept for backward compat, but
+/// SessionVisibility.approval covers the same intent more clearly.
 enum JoinApproval {
   none,
   hostApproval;
@@ -84,4 +88,14 @@ enum JoinApproval {
       orElse: () => JoinApproval.none,
     );
   }
+}
+
+/// Current user's relationship to a session.
+/// This is a transient/computed value — NOT stored in Firestore.
+/// Computed when loading sessions by checking host_id + participants + join_requests.
+enum JoinStatus {
+  notJoined,
+  pending,
+  joined,
+  host;
 }
