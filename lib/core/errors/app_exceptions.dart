@@ -53,3 +53,20 @@ class StorageException extends AppException {
 class FileTooLargeException extends StorageException {
   const FileTooLargeException(super.message, {super.code});
 }
+
+/// Thrown by [AuthService.signUp] when the supplied email address does not
+/// belong to an allowed university domain (see [kAllowedEmailDomains]).
+class InvalidUniversityEmailException extends AuthException {
+  const InvalidUniversityEmailException(super.message)
+      : super(code: 'invalid-university-email');
+}
+
+/// Thrown by [AuthService.signIn] / [AuthService.authStateChanges] when
+/// Firebase Auth succeeds but the corresponding Firestore user document is
+/// missing — this should never happen in normal operation but can occur if the
+/// Firestore write was rolled back or manually deleted.
+class UserProfileNotFoundException extends NotFoundException {
+  const UserProfileNotFoundException()
+      : super('User profile not found. Please contact support.',
+            code: 'user-profile-not-found');
+}

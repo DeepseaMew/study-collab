@@ -54,6 +54,13 @@ class AppUser {
     );
   }
 
+  /// Serialises the user for Firestore writes.
+  ///
+  /// NOTE: `createdAt` and `updatedAt` are intentionally excluded.
+  /// Every write call-site in the services layer supplies these via
+  /// `FieldValue.serverTimestamp()` so the timestamp is authoritative and
+  /// consistent across clients.  Storing `Timestamp.fromDate(DateTime.now())`
+  /// here would use a client-local clock, which violates the project rule.
   Map<String, dynamic> toFirestore() {
     return {
       'email': email,
@@ -65,8 +72,6 @@ class AppUser {
       'faculty': faculty,
       'friendsCount': friendsCount,
       'sessionsCount': sessionsCount,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'updatedAt': Timestamp.fromDate(updatedAt),
     };
   }
 
@@ -94,7 +99,7 @@ class AppUser {
       friendsCount: friendsCount ?? this.friendsCount,
       sessionsCount: sessionsCount ?? this.sessionsCount,
       createdAt: createdAt,
-      updatedAt: updatedAt ?? DateTime.now(),
+      updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 }
