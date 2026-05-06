@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -16,7 +16,7 @@ import '../../features/dashboard/screens/dashboard_screen.dart';
 // import '../../features/profile/screens/profile_screen.dart';
 // import '../../features/profile/screens/other_user_profile_screen.dart';
 // import '../../features/notifications/screens/notifications_screen.dart';
-// import '../../features/settings/screens/settings_screen.dart';
+import '../../features/settings/screens/settings_screen.dart';
 // import '../../features/session/screens/create_session_screen.dart';
 // import '../../features/session/screens/edit_session_screen.dart';
 // import '../../features/session/screens/session_detail_screen.dart';
@@ -54,7 +54,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/home',
         builder: (context, state) => const DashboardScreen(),
       ),
-
+      
       // TODO: replace _HomePlaceholder with the real ShellRoute below
       // once main_shell.dart and inner screens are built and migrated to Riverpod.
       //
@@ -92,28 +92,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       // GoRoute(path: '/messages/:id', builder: (c, s) =>
       //   DmScreen(userId: s.pathParameters['id']!)),
       // GoRoute(path: '/notifications', builder: (c, s) => const NotificationsScreen()),
-      // GoRoute(path: '/settings',      builder: (c, s) => const SettingsScreen()),
+       GoRoute(path: '/settings',      builder: (c, s) => const SettingsScreen()),
     ],
   );
 });
 
 /// Temporary home screen until the real dashboard is migrated.
-class _HomePlaceholder extends StatelessWidget {
-  const _HomePlaceholder();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: Padding(
-          padding: EdgeInsets.all(24),
-          child: Text(
-            'Home — TODO\n\nAuth works! Dashboard will replace this screen '
-            'once it is migrated from teammate\'s repo.',
-            textAlign: TextAlign.center,
-          ),
-        ),
-      ),
-    );
-  }
-}
