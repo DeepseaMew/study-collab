@@ -45,9 +45,9 @@ updates their profile:
 ## Security
 - **Session passwords** must be hashed before storing. Use `crypto` package's
   SHA-256 with a per-session salt. Never store plain text. Never log them.
-- **Email validation:** auth_service must check the email domain matches the
-  university domain (TBD with professor — leave a constant in
-  `lib/core/constants/` to be filled in).
+- **Email validation:** auth_service must check email domain via
+`isAllowedUniversityEmail()` from `lib/core/constants/auth_constants.dart`.
+Allowed domains: kmutt.ac.th, mail.kmutt.ac.th.
 - **No PII in logs.** Never log full email, password, or session password.
 - **Friends-only chat:** chat_service must verify both users are in each
   other's friend list before allowing message sends. This belongs in the
@@ -99,5 +99,5 @@ Output a structured summary in this format:
 - New Firestore indexes required: [list with collection + fields, or "none"]
 - New security rule changes needed: [yes/no — if yes, describe]
 - Manual test steps: [what to verify in Firebase Console or app]
-- Follow-ups: [anything for flutter-engineer / reviewer / tester]
+- Follow-ups: [anything for flutter-engineer / code-reviewer / qa-engineer]
 ```

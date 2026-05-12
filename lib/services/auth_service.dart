@@ -3,7 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-//import '../core/constants/auth_constants.dart';
+import '../core/constants/auth_constants.dart';
 import '../core/constants/firestore_collections.dart';
 import '../core/errors/app_exceptions.dart';
 import '../models/app_user.dart';
@@ -74,15 +74,13 @@ class AuthService {
     int studentYear = 1,
     String faculty = '',
   }) async {
-    // 1. Validate email domain.
-    // TEMP: domain check disabled for testing — re-enable before launch.
-    // TODO: confirm correct KMUTT domain with classmate, then uncomment below.
-    // if (!isAllowedUniversityEmail(email)) {
-    //   throw InvalidUniversityEmailException(
-    //     'Only university email addresses are accepted '
-    //     '(${kAllowedEmailDomains.join(", ")}).',
-    //   );
-    // }
+
+    if (!isAllowedUniversityEmail(email)) {
+    throw InvalidUniversityEmailException(
+    'Only university email addresses are accepted '
+    '(${kAllowedEmailDomains.join(", ")}).',
+    );
+    }
 
     UserCredential? credential;
     AppUser? newUser;
@@ -145,6 +143,13 @@ class AuthService {
     } catch (_) {
       // best-effort; display name is not critical
     }
+    // 6. Send email verification link — best-effort.
+try {
+  await credential.user!.sendEmailVerification();
+} catch (e) {
+  debugPrint('[AuthService] sendEmailVerification failed: $e');
+  // best-effort; user can resend from the verify screen
+}
 
     return newUser;
   }
@@ -210,6 +215,41 @@ class AuthService {
       return null;
     }
   }
+  
+  // ---------------------------------------------------------------------------
+// Email verification
+// ---------------------------------------------------------------------------
+
+/// Returns true if the current user's email is verified.
+///
+/// Reloads the user from Firebase first so we pick up the latest status —
+/// the local cache won't update on its own when the user clicks the link
+/// in their inbox.
+Future<bool> isEmailVerified() async {
+  final user = _auth.currentUser;
+  if (user == null) return false;
+  try {
+    await user.reload();
+    return _auth.currentUser?.emailVerified ?? false;
+  } catch (e) {
+    debugPrint('[AuthService] isEmailVerified reload failed: $e');
+    return user.emailVerified;
+  }
+}
+
+/// Resend the verification email to the current user.
+/// Throws AuthException if Firebase rate-limits us or fails for any reason.
+Future<void> resendVerificationEmail() async {
+  final user = _auth.currentUser;
+  if (user == null) {
+    throw const AuthException('Not signed in');
+  }
+  try {
+    await user.sendEmailVerification();
+  } on FirebaseAuthException catch (e) {
+    throw AuthException.fromFirebaseCode(e.code);
+  }
+}
 
   // ---------------------------------------------------------------------------
   // Private helpers

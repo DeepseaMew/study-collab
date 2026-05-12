@@ -7,6 +7,7 @@ enum NotificationType {
   newMessage,
   sessionReminder,
   sessionCancelled,
+  sessionPostponed,
   friendRequest,
   unknown;
 
@@ -63,6 +64,8 @@ class AppNotification {
         return '${sessionTitle ?? "Your session"} starts soon';
       case NotificationType.sessionCancelled:
         return '${sessionTitle ?? "A session"} was cancelled';
+      case NotificationType.sessionPostponed:
+        return '${sessionTitle ?? "A session"} has been postponed';
       case NotificationType.friendRequest:
         return '${fromUsername ?? "Someone"} sent you a friend request';
       case NotificationType.unknown:
@@ -77,6 +80,7 @@ class AppNotification {
       case NotificationType.requestDeclined:
       case NotificationType.sessionReminder:
       case NotificationType.sessionCancelled:
+      case NotificationType.sessionPostponed:
         return sessionTitle;
       case NotificationType.newMessage:
         return body;

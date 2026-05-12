@@ -1,5 +1,5 @@
 ---
-name: reviewer
+name: code-reviewer
 description: >-
   Use to review code changes before commit or PR. Read-only. Triggered by
   'review', 'check this', 'audit', 'is this correct', 'look over', or

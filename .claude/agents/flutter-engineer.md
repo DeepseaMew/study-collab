@@ -18,9 +18,9 @@ wires them together. You also call services from providers — but you do NOT
 write Firestore queries directly. Firebase work goes to firebase-specialist.
 
 # House rules
-- **State:** Riverpod 2.x with code-generated providers (`riverpod_generator`).
-  Never use `setState` in feature code unless it's purely local UI state
-  (e.g. a toggle inside one widget).
+- **State:** Riverpod 2.x with hand-written providers
+(Provider, StreamProvider, FutureProvider, Provider.family).
+We do NOT use riverpod_generator or @riverpod annotations.
 - **Routing:** GoRouter. Every new route must be declared in
   `lib/core/router/`. Never push `MaterialPageRoute` directly.
 - **Models:** Plain Dart classes with `fromFirestore`, `toFirestore`, and

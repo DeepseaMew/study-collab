@@ -1,15 +1,22 @@
+import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/constants/firestore_collections.dart';
 import '../core/errors/app_exceptions.dart';
 import '../models/app_user.dart';
+import '../models/enums.dart';
 
 class UserService {
   final FirebaseFirestore _firestore;
+  final FirebaseStorage _storage;
 
-  UserService({FirebaseFirestore? firestore})
-      : _firestore = firestore ?? FirebaseFirestore.instance;
+  UserService({
+    FirebaseFirestore? firestore,
+    FirebaseStorage? storage,
+  })  : _firestore = firestore ?? FirebaseFirestore.instance,
+        _storage = storage ?? FirebaseStorage.instance;
 
   /// Get a user profile by ID — one time read
   Future<AppUser?> getUser(String userId) async {
@@ -38,12 +45,38 @@ class UserService {
     });
   }
 
-  /// Update username and/or bio
+  /// Upload a profile photo to Firebase Storage and return its download URL.
+  ///
+  /// The file is saved at `users/{userId}/avatar.jpg`. Uploading again
+  /// overwrites the previous avatar — no orphan files.
+  ///
+  /// The caller should then pass the returned URL to [updateProfile] so the
+  /// user's Firestore document points at the new image.
+  Future<String> uploadAvatar({
+    required String userId,
+    required File file,
+  }) async {
+    try {
+      final ref = _storage.ref('users/$userId/avatar.jpg');
+      await ref.putFile(
+        file,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
+      return await ref.getDownloadURL();
+    } catch (e) {
+      throw DataException('Failed to upload avatar: $e');
+    }
+  }
+
+  /// Update profile fields. Pass only the fields you want to change.
   Future<void> updateProfile({
     required String userId,
     String? username,
     String? bio,
     String? profilePhotoUrl,
+    String? faculty,
+    int? studentYear,
+    AcademicLevel? academicLevel,
   }) async {
     try {
       final updates = <String, dynamic>{
@@ -53,6 +86,9 @@ class UserService {
       if (username != null) updates['username'] = username.trim();
       if (bio != null) updates['bio'] = bio;
       if (profilePhotoUrl != null) updates['profilePhotoUrl'] = profilePhotoUrl;
+      if (faculty != null) updates['faculty'] = faculty.trim();
+      if (studentYear != null) updates['studentYear'] = studentYear;
+      if (academicLevel != null) updates['academicLevel'] = academicLevel.name;
 
       await _firestore
           .collection(FirestoreCollections.users)

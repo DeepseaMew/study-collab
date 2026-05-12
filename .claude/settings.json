@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Edit(lib/**)",
+      "Edit(test/**)",
+      "Edit(integration_test/**)",
+      "Edit(docs/**)",
+      "Edit(.claude/**)",
+      "Edit(pubspec.yaml)",
+      "Edit(analysis_options.yaml)",
+      "Edit(firestore.rules)",
+      "Edit(firestore.indexes.json)",
+      "Edit(storage.rules)",
+      "Bash(flutter:*)",
+      "Bash(dart:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)"
+    ],
+    "deny": [
+      "Edit(**/*.g.dart)",
+      "Edit(**/*.freezed.dart)",
+      "Edit(**/firebase_options.dart)",
+      "Edit(**/generated_plugin_registrant.*)",
+      "Edit(android/app/build/**)",
+      "Edit(android/.gradle/**)",
+      "Edit(ios/Pods/**)",
+      "Edit(ios/Runner.xcworkspace/**)",
+      "Edit(.dart_tool/**)",
+      "Edit(build/**)",
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(git reset --hard*)"
+    ]
+  }
+}

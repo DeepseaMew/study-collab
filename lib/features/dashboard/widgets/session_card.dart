@@ -274,25 +274,8 @@ class _NotJoinedButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     switch (session.visibility) {
+      // Public sessions now always require host approval to join.
       case SessionVisibility.public:
-        return ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: joinColor,
-            minimumSize: const Size(80, 40),
-          ),
-          onPressed: () {
-            // TODO: wire to participation_service.joinSession
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Joined "${session.title}"!'),
-                backgroundColor: AppColors.success,
-              ),
-            );
-          },
-          child: const Text('Join'),
-        );
-
-      case SessionVisibility.approval:
         return OutlinedButton(
           style: OutlinedButton.styleFrom(
             side: BorderSide(color: joinColor),
@@ -317,6 +300,8 @@ class _NotJoinedButton extends StatelessWidget {
           child: const Text('Request to Join'),
         );
 
+      // Private sessions are hidden from browse; if a user reaches one
+      // (via shared link), they need the password to join.
       case SessionVisibility.private:
         return ElevatedButton.icon(
           style: ElevatedButton.styleFrom(

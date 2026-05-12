@@ -60,33 +60,19 @@ enum SessionStatus {
 }
 
 /// Session visibility:
-/// - public: anyone can see + join instantly
-/// - approval: anyone can see, but join requests need host approval
-/// - private: requires password to join
+/// - public: visible in browse/search; joining requires host approval.
+/// - private: hidden from browse/search; joinable only via password
+///   (or a shared link that includes the session id).
 enum SessionVisibility {
   public,
-  approval,
   private;
 
+  /// Legacy values 'approval' (now folded into public) and any other
+  /// unknown string fall back to public — public sessions still require
+  /// host approval, so this is the safe default for old data.
   static SessionVisibility fromString(String? value) {
-    return SessionVisibility.values.firstWhere(
-      (v) => v.name == value,
-      orElse: () => SessionVisibility.public,
-    );
-  }
-}
-
-/// Approval mode for join requests — kept for backward compat, but
-/// SessionVisibility.approval covers the same intent more clearly.
-enum JoinApproval {
-  none,
-  hostApproval;
-
-  static JoinApproval fromString(String? value) {
-    return JoinApproval.values.firstWhere(
-      (a) => a.name == value,
-      orElse: () => JoinApproval.none,
-    );
+    if (value == 'private') return SessionVisibility.private;
+    return SessionVisibility.public;
   }
 }
 

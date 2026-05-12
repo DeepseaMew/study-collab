@@ -7,7 +7,6 @@ class Session {
   final Subject subject;
   final String description;
   final SessionVisibility visibility;
-  final JoinApproval joinApproval;
   final String hostId;
   final String hostName;
   final String? hostPhotoUrl;
@@ -37,7 +36,6 @@ class Session {
     required this.subject,
     this.description = '',
     this.visibility = SessionVisibility.public,
-    this.joinApproval = JoinApproval.none,
     required this.hostId,
     required this.hostName,
     this.hostPhotoUrl,
@@ -61,9 +59,10 @@ class Session {
   int get spotsLeft => capacity - participantCount;
   bool get isPasswordProtected =>
       passwordHash != null && passwordHash!.isNotEmpty;
-  bool get requiresApproval =>
-      visibility == SessionVisibility.approval ||
-      joinApproval == JoinApproval.hostApproval;
+
+  /// Public sessions always require host approval to join.
+  /// Private sessions never use approval — they use the password instead.
+  bool get requiresApproval => visibility == SessionVisibility.public;
 
   factory Session.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data();
@@ -74,7 +73,6 @@ class Session {
       subject: Subject.fromString(data['subject'] as String?),
       description: data['description'] as String? ?? '',
       visibility: SessionVisibility.fromString(data['visibility'] as String?),
-      joinApproval: JoinApproval.fromString(data['joinApproval'] as String?),
       hostId: data['hostId'] as String? ?? '',
       hostName: data['hostName'] as String? ?? '',
       hostPhotoUrl: data['hostPhotoUrl'] as String?,
@@ -106,7 +104,6 @@ class Session {
       'subject': subject.name,
       'description': description,
       'visibility': visibility.name,
-      'joinApproval': joinApproval.name,
       'hostId': hostId,
       'hostName': hostName,
       'hostPhotoUrl': hostPhotoUrl,
@@ -119,7 +116,7 @@ class Session {
       'reviewsEnabled': reviewsEnabled,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
-      if (passwordHash != null) 'passwordHash': passwordHash!, // ignore: use_null_aware_elements
+      // passwordHash is set exclusively by SessionService.createSession — never emitted from model serialization.
       if (studentYear != null) 'studentYear': studentYear!, // ignore: use_null_aware_elements
       if (academicLevel != null) 'academicLevel': academicLevel!.name,
       'hashtags': hashtags,
@@ -134,7 +131,6 @@ class Session {
     Subject? subject,
     String? description,
     SessionVisibility? visibility,
-    JoinApproval? joinApproval,
     String? hostName,
     String? hostPhotoUrl,
     DateTime? startTime,
@@ -157,7 +153,6 @@ class Session {
       subject: subject ?? this.subject,
       description: description ?? this.description,
       visibility: visibility ?? this.visibility,
-      joinApproval: joinApproval ?? this.joinApproval,
       hostId: hostId,
       hostName: hostName ?? this.hostName,
       hostPhotoUrl: hostPhotoUrl ?? this.hostPhotoUrl,

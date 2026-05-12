@@ -1,5 +1,5 @@
 ---
-name: tester
+name: qa-engineer.md
 description: >-
   Use for writing and maintaining tests: unit tests, widget tests, and service
   tests with mocked Firestore. Triggered by 'add tests', 'test this', 'write
@@ -117,5 +117,5 @@ Output a structured summary:
 - All tests passing: [yes / no — if no, list failing]
 - Coverage gaps remaining: [what's still untested that should be]
 - Dependencies needed: [any packages user must add to pubspec.yaml]
-- Follow-ups: [anything for flutter-engineer / firebase-specialist / reviewer]
+- Follow-ups: [anything for flutter-engineer / firebase-specialist / code-reviewer]
 ```

@@ -11,18 +11,17 @@ service cloud.firestore {
       return request.auth.uid == uid;
     }
 
-    function memberDocId(sessionId) {
-      return sessionId + '_' + request.auth.uid;
-    }
-
+    // Checks whether the current user is a confirmed member of a session.
+    // Uses the subcollection path: sessions/{sessionId}/members/{uid}.
     function isSessionMember(sessionId) {
       return isSignedIn() &&
-        exists(/databases/$(database)/documents/session_members/$(memberDocId(sessionId)));
+        exists(/databases/$(database)/documents/sessions/$(sessionId)/members/$(request.auth.uid));
     }
 
+    // Checks whether the current user is the host of a session.
     function isSessionHost(sessionId) {
       return isSignedIn() &&
-        get(/databases/$(database)/documents/session_members/$(memberDocId(sessionId))).data.role == 'host';
+        get(/databases/$(database)/documents/sessions/$(sessionId)/members/$(request.auth.uid)).data.role == 'host';
     }
 
     function isValidSession() {
@@ -30,85 +29,170 @@ service cloud.firestore {
       return d.title is string && d.title.size() > 0
         && d.subject is string
         && d.capacity is int && d.capacity >= 1 && d.capacity <= 50
-        && d.start_time is timestamp
-        && d.end_time is timestamp
-        && d.end_time > d.start_time
-        && d.status in ['open', 'full', 'in_progress', 'ended']
-        && d.is_public is bool;
+        && d.startTime is timestamp
+        && d.endTime is timestamp
+        && d.endTime > d.startTime
+        && d.status in ['upcoming', 'ongoing', 'completed', 'cancelled']
+        && d.visibility in ['public', 'private'];
     }
 
     // ── USERS ────────────────────────────────────────────────────────
     match /users/{uid} {
       allow read:   if isSignedIn();
-      allow create: if isOwner(uid)
-                    && request.resource.data.uid == uid;
-      allow update: if isOwner(uid)
-                    && request.resource.data.uid == uid;
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid);
       allow delete: if false;
+
+      // Notifications subcollection — only readable/deletable by the owner.
+      // Service layer writes notifications via batch writes on behalf of users.
+      match /notifications/{notificationId} {
+        allow read:   if isOwner(uid);
+        // Service writes notifications on behalf of other users (cancel/postpone fan-out).
+        // Require that fromUserId matches the caller to prevent notification spam.
+        allow create: if isSignedIn() && request.resource.data.fromUserId == request.auth.uid;
+        allow update: if isOwner(uid);
+        allow delete: if isOwner(uid);
+      }
     }
 
     // ── SESSIONS ─────────────────────────────────────────────────────
     match /sessions/{sessionId} {
-      allow read: if isSignedIn() &&
-        (resource.data.is_public == true || isSessionMember(sessionId));
+      // Path 1: Public sessions readable to any signed-in user (browse/search).
+      allow read: if isSignedIn() && resource.data.visibility == 'public';
+      // Path 2: Hosts can always read their own sessions.
+      allow read: if isSignedIn() && resource.data.hostId == request.auth.uid;
+      // Path 3: Members can read sessions they're confirmed in.
+      allow read: if isSignedIn() && isSessionMember(sessionId);
 
       allow create: if isSignedIn()
                     && isValidSession()
-                    && request.resource.data.host_uid == request.auth.uid
-                    && request.resource.data.member_count == 1;
+                    && request.resource.data.hostId == request.auth.uid;
 
       allow update: if isSessionHost(sessionId)
-                    && request.resource.data.host_uid == resource.data.host_uid;
+                    && request.resource.data.hostId == resource.data.hostId;
 
       allow delete: if isSessionHost(sessionId);
+
+      // ── Members subcollection ───────────────────────────────────
+      match /members/{memberUserId} {
+        // Split read into get and list because their requirements differ.
+        //
+        // get (single doc read): uses get() lookup to check session visibility.
+        // Works fine because we're reading one specific doc.
+        allow get: if isSignedIn() &&
+          (get(/databases/$(database)/documents/sessions/$(sessionId)).data.visibility == 'public'
+           || isSessionMember(sessionId));
+
+        // list (subcollection query): cannot use get() lookups. Allow the user
+        // to list members of any session where they are themselves a member
+        // (i.e., they're already in the session).
+        allow list: if isSignedIn() && isSessionMember(sessionId);
+
+        // Three creation paths — see top-level collectionGroup rule comment too.
+        allow create: if isSessionHost(sessionId)
+              || (isSignedIn()
+                  && request.auth.uid == memberUserId
+                  && request.resource.data.role == 'member')
+              || (isSignedIn()
+                  && request.auth.uid == memberUserId
+                  && request.resource.data.role == 'host'
+                  && request.resource.data.hostId == request.auth.uid);
+
+        allow update: if isSessionHost(sessionId)
+                      || request.auth.uid == memberUserId;
+        allow delete: if isSessionHost(sessionId)
+                      || request.auth.uid == memberUserId;
+      }
+
+      // ── JoinRequests subcollection ──────────────────────────────
+      match /joinRequests/{requestUserId} {
+        allow read:   if isSessionHost(sessionId) || request.auth.uid == requestUserId;
+        allow create: if isSignedIn() && request.auth.uid == requestUserId;
+        allow delete: if isSessionHost(sessionId) || request.auth.uid == requestUserId;
+        allow update: if false;
+      }
 
       // ── Messages subcollection ──────────────────────────────────
       match /messages/{messageId} {
         allow read:   if isSessionMember(sessionId);
         allow create: if isSessionMember(sessionId)
-                      && request.resource.data.sender_uid == request.auth.uid
+                      && request.resource.data.senderUid == request.auth.uid
                       && request.resource.data.text is string
                       && request.resource.data.text.size() <= 2000;
         allow update: if false;
         allow delete: if isSessionHost(sessionId)
-                      || request.auth.uid == resource.data.sender_uid;
+                      || request.auth.uid == resource.data.senderUid;
       }
 
       // ── Files subcollection ─────────────────────────────────────
       match /files/{fileId} {
         allow read:   if isSessionMember(sessionId);
         allow create: if isSessionMember(sessionId)
-                      && request.resource.data.uploader_uid == request.auth.uid;
+                      && request.resource.data.uploaderUid == request.auth.uid;
         allow update: if false;
         allow delete: if isSessionHost(sessionId)
-                      || request.auth.uid == resource.data.uploader_uid;
+                      || request.auth.uid == resource.data.uploaderUid;
       }
     }
 
-    // ── SESSION MEMBERS ───────────────────────────────────────────────
-    // Document ID: {sessionId}_{uid}
-    match /session_members/{memberId} {
+    // ── CHATS ────────────────────────────────────────────────────────
+    match /chats/{chatId} {
+      allow read, write: if false;
+      match /messages/{messageId} {
+        allow read, write: if false;
+      }
+    }
+
+    // ── FRIENDS ──────────────────────────────────────────────────────
+    match /friends/{ownerId} {
+      allow read: if isSignedIn();
+
+      match /userFriends/{friendId} {
+        allow read:   if isSignedIn();
+        allow create: if isSignedIn() && isOwner(ownerId);
+        allow update: if isOwner(ownerId);
+        allow delete: if isOwner(ownerId);
+      }
+    }
+
+    // ── FRIEND REQUESTS ───────────────────────────────────────────────
+    match /friendRequests/{requestId} {
+      allow read:   if isSignedIn() &&
+        (resource.data.senderId == request.auth.uid ||
+         resource.data.recipientId == request.auth.uid);
+      allow create: if isSignedIn()
+                    && request.resource.data.senderId == request.auth.uid;
+      allow delete: if isSignedIn() &&
+        (resource.data.senderId == request.auth.uid ||
+         resource.data.recipientId == request.auth.uid);
+      allow update: if false;
+    }
+
+    // ── COLLECTION-GROUP QUERIES on members ───────────────────────────
+    // Allows a user to query for THEIR OWN member docs across all sessions
+    // (watchUserMemberships). Required because collectionGroup queries can't
+    // be evaluated against the nested per-session rule (which uses get()).
+    // The userId == request.auth.uid filter in the query matches what this
+    // rule allows.
+    match /{path=**}/members/{memberUserId} {
+      allow list: if isSignedIn() && request.auth.uid == memberUserId;
+      allow get: if isSignedIn() && request.auth.uid == memberUserId;
+    }
+
+    // ── RATINGS ──────────────────────────────────────────────────────────────
+    match /ratings/{ratingId} {
       allow read: if isSignedIn();
 
       allow create: if isSignedIn()
-                    && request.resource.data.uid == request.auth.uid
-                    && request.resource.data.role == 'member'
-                    && memberId == request.resource.data.session_id + '_' + request.auth.uid;
+                    && request.resource.data.raterId == request.auth.uid
+                    && request.resource.data.raterId != request.resource.data.ratedUserId
+                    && exists(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)/members/$(request.auth.uid))
+                    && exists(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)/members/$(request.resource.data.ratedUserId))
+                    && get(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data.endTime < request.time;
 
-      allow update: if isSessionHost(resource.data.session_id)
-                    || isOwner(resource.data.uid);
-
-      allow delete: if isOwner(resource.data.uid)
-                    || isSessionHost(resource.data.session_id);
+      allow update: if false;
+      allow delete: if false;
     }
 
-    // ── CALENDAR EVENTS ───────────────────────────────────────────────
-    match /calendar_events/{eventId} {
-      allow read:   if isSignedIn() && isOwner(resource.data.uid);
-      allow create: if isSignedIn()
-                    && request.resource.data.uid == request.auth.uid;
-      allow update: if isOwner(resource.data.uid);
-      allow delete: if isOwner(resource.data.uid);
-    }
   }
 }

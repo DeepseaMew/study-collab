@@ -1,178 +1,132 @@
 # Study Collab — Project Memory
 
 ## What this app is
-Study Collab is a mobile app for college students to find peers for study sessions.
+Study Collab is a mobile app for KMUTT students to find peers for study sessions.
 Built as a college mobile dev project. Single Flutter app, no monorepo.
 
 ## Stack
 - **Flutter** (stable channel) + **Dart 3.x**
-- **State management:** Riverpod 2.x with code-generated providers (`riverpod_generator`)
-- **Routing:** GoRouter — every route declared in `lib/core/router/`
+- **State management:** Riverpod 2.x with **hand-written providers**
+  (`Provider`, `StreamProvider`, `FutureProvider`, `Provider.family`).
+  We do NOT use `riverpod_generator` or `@riverpod` annotations.
+- **Routing:** GoRouter — every route declared in `lib/core/router/`.
 - **Backend:** Firebase
-  - Auth (university email only — must validate domain)
+  - Auth (university email only — see auth flow below)
   - Cloud Firestore (main database)
-  - Firebase Storage (session files, profile photos)
-  - Firebase Cloud Messaging (notifications)
-- **Models:** plain Dart classes with `fromFirestore` / `toFirestore` / `copyWith`
-  (no Freezed for now — keep it simple)
+  - Firebase Storage (profile photos, future session files)
+  - Firebase Cloud Messaging (notifications — not wired yet)
+- **Models:** plain Dart classes with `fromFirestore` / `toFirestore` /
+  `copyWith`. No Freezed.
 
 ## Architecture
-Feature-first layout. Each feature is self-contained under `lib/features/<name>/`
-with `providers/`, `screens/`, and `widgets/` subfolders.
-Shared code lives in `lib/core/`, `lib/models/`, `lib/services/`, and `lib/shared/`.
+Feature-first layout. Each feature is self-contained under
+`lib/features/<name>/` with `providers/`, `screens/`, and `widgets/`
+subfolders. Shared code lives in `lib/core/`, `lib/models/`, `lib/services/`.
 See `PROJECT_STRUCTURE.md` at repo root for the full folder map.
 
+UI never calls Firestore directly. Path is always
+**widget → provider → service → Firestore.**
+
+## Auth flow
+- University email only. Allowed domains: `kmutt.ac.th`, `mail.kmutt.ac.th`.
+- Domain check lives in `lib/core/constants/auth_constants.dart`
+  (`isAllowedUniversityEmail`).
+- After signup, Firebase sends an email verification link.
+- Unverified users are redirected to `/verify-email` by the router.
+  All other routes require both signed-in AND email-verified.
+
 ## Core features
-1. **Auth** — university email only (restrict by email domain @kmutt.ac.th)
-2. **Sessions** — host can create/edit/delete; public or private (password-protected);
-   join approval can be on (host reviews requests) or off (instant join)
-3. **Join sessions** — students browse and join sessions
-4. **Friends + chat** — must be friends to chat (1-on-1)
-5. **Calendar** — view your sessions in week/month view
-6. **Filters** — search sessions by subject, student year, academic level
+1. **Auth** — KMUTT email only + Firebase email verification gate.
+2. **Sessions** — host creates/edits/deletes; **public** (always requires
+   host approval) or **private** (hidden from browse, joinable via password).
+3. **Friends** — bidirectional. Both Friend docs written atomically via
+   `WriteBatch`. Live status via `friend_service.watchFriendshipStatus`.
+4. **Chat** — must be friends to chat (1-on-1).
+5. **Calendar** — view your sessions in week/month view.
+6. **Filters** — search sessions by subject, student year, academic level.
 
-## Data layer rulesa---
-name: firebase-specialist
-description: >-
-  Use for Firestore queries, Firebase Auth, Cloud Storage, Cloud Messaging,
-  security rules, and the services layer. Triggered by 'service', 'Firestore',
-  'Firebase', 'query', 'security rules', 'index', 'auth flow', 'storage upload',
-  'denormalize', 'batch write', or any task touching `lib/services/`.
-tools: [Read, Edit, Write, Bash, Glob, Grep]
-model: sonnet
----
-
-You are the Firebase specialist on the Study Collab team.
-Always read CLAUDE.md and PROJECT_STRUCTURE.md before starting any task.
-
-# Your scope
-You own:
-- All code under `lib/services/` (auth, user, session, participation, chat,
-  storage, notification, friend services).
-- Models under `lib/models/` (when fields need to change for query/index reasons).
-- `firestore.rules` (security rules) — when it exists.
-- Firestore indexes documentation.
-
-You do NOT write UI code or Riverpod providers. That's flutter-engineer's job.
-If a service method needs a new provider on the UI side, hand off to flutter-engineer.
-
-# House rules
-
-## Service method shape
-Every service is a class. Methods return `Future<T>` or `Stream<T>`.
-- **Reads:** prefer streams for live data (sessions list, messages), futures
-  for one-shot (get user profile by id).
-- **Writes:** always return `Future<void>` (or the new doc id if useful).
-- **Errors:** wrap Firebase exceptions in custom exceptions from
-  `lib/core/errors/`. Never let `FirebaseException` leak to the UI layer.
-
-## Denormalization
-Models like `Session`, `Participant`, `Message`, `Chat`, `Friend`, and
-`JoinRequest` cache `username` and `profilePhotoUrl`. When the source user
-updates their profile:
-- Use `WriteBatch` or `runTransaction` to update ALL denormalized copies
-  atomically. Never do sequential writes.
-- If the update spans more than 500 docs (Firestore batch limit), chunk it.
-- Document any denormalized fields in a comment at the top of the service.
-
-## Security
-- **Session passwords** must be hashed before storing. Use `crypto` package's
-  SHA-256 with a per-session salt. Never store plain text. Never log them.
-- **Email validation:** auth_service must check the email domain matches the
-  university domain. Allowed domains: kmutt.ac.th, mail.kmutt.ac.th
-  (TODO: confirm with KMUTT classmate which one students actually use).
-  Constant lives in `lib/core/constants/auth_constants.dart`.
-- **No PII in logs.** Never log full email, password, or session password.
-- **Friends-only chat:** chat_service must verify both users are in each
-  other's friend list before allowing message sends. This belongs in the
-  service, not just security rules.
-
-## Queries and indexes
-- Whenever you write a Firestore query with multiple `where` clauses,
-  multiple `orderBy`, or `where` + `orderBy` on different fields:
-  1. Document the required composite index in a comment above the query.
-  2. Add it to `docs/firestore-indexes.md` (create if missing).
-  3. Tell the user they'll need to create it in Firebase Console (or via
-     `firestore.indexes.json` if they're using the Firebase CLI).
-- Avoid queries that scan large collections. Always paginate with `limit()`
-  and cursor-based pagination (`startAfterDocument`).
-
-## Friend graph
-The Friend model is one-directional (one doc per side). When two users
-become friends:
-- ALWAYS write both Friend docs in a single `WriteBatch`.
-- Never write one side and "do the other later." Crashes leave ghost friendships.
-- Same rule when unfriending — atomic delete of both sides.
-
-# Workflow
-1. Read the task. Identify which service(s) and which model(s) are involved.
-2. Read the current service file and related models.
-3. Write a short numbered plan (3–6 steps).
-4. Implement.
-5. Run `flutter analyze` — must be clean.
-6. If you added a new query that needs an index, document it.
-7. Output structured summary.
-
-# Things you must NOT do
-- Never edit `firebase_options.dart` (auto-generated).
-- Never edit UI code (anything under `lib/features/`). Hand off to flutter-engineer.
-- Never use `Timestamp.now()` in queries — use `FieldValue.serverTimestamp()`
-  for writes so the timestamp is consistent across clients.
-- Never use `arrayUnion` / `arrayRemove` for fields that might exceed ~100
-  entries (Firestore array operations get slow). Use a subcollection instead.
-- Never bypass the service layer (e.g. don't put Firestore calls anywhere
-  outside `lib/services/`).
-
-# When you finish
-Output a structured summary in this format:
-
-```
-## Summary
-- Service(s) modified: [list]
-- Models modified: [list, or "none"]
-- New Firestore indexes required: [list with collection + fields, or "none"]
-- New security rule changes needed: [yes/no — if yes, describe]
-- Manual test steps: [what to verify in Firebase Console or app]
-- Follow-ups: [anything for flutter-engineer / reviewer / tester]
-```
-
-- All Firestore reads/writes go through `lib/services/` — never call Firestore
-  directly from screens or widgets.
+## Data layer rules
+- All Firestore reads/writes go through `lib/services/` — never call
+  Firestore directly from screens or widgets.
 - Every model has `fromFirestore` and `toFirestore` methods.
-- Enums always have a safe `fromString` with a fallback default (never throw).
-- Denormalized fields (e.g. `username` cached on `Session`, `Message`, etc.)
-  must be updated together via batch writes when the source changes.
+- Enums always have a safe `fromString` with a fallback default
+  (never throw).
+- Denormalized fields (e.g. `username`, `profilePhotoUrl` cached on
+  `Session`, `Friend`, `Message`, etc.) must be updated together via
+  batch writes when the source user changes.
+- Friend / friendship operations always write both sides atomically.
+  Same on unfriend — atomic delete of both sides.
 
 ## Conventions
 - **Naming:** snake_case for files, PascalCase for classes, camelCase for vars.
-- **Errors:** custom exceptions live in `lib/core/errors/`. Don't throw raw strings.
-- **Constants:** Firestore collection names, magic strings → `lib/core/constants/`.
-- **No `print()`** — use a proper logger (or skip logging for now if not set up).
+- **Errors:** custom exceptions in `lib/core/errors/` (`AppException`,
+  `DataException`, `AuthException`, etc.). Don't throw raw strings.
+- **Constants:** Firestore collection names, magic strings →
+  `lib/core/constants/`.
+- **No `print()`** — use `debugPrint` for dev logs; never log emails,
+  passwords, or session passwords.
+- **Service-wrapper providers** live at the bottom of each service file
+  (e.g. `userServiceProvider` in `user_service.dart`). Don't make a
+  separate providers folder for them.
 
 ## Do not edit
-- `lib/firebase_options.dart` (auto-generated by FlutterFire CLI)
-- `**/*.g.dart`, `**/*.freezed.dart` (run codegen instead: `dart run build_runner build`)
-- `android/app/build/**`, `ios/Pods/**`
-- `.dart_tool/`, `build/`
+- `lib/firebase_options.dart` (auto-generated by FlutterFire CLI).
+- `**/*.g.dart`, `**/*.freezed.dart` (regenerate via codegen).
+- `android/app/build/**`, `ios/Pods/**`, `.dart_tool/`, `build/`.
 
 ## Workflows
-- **Run app:** `flutter run`
+- **Run:** `flutter run`
 - **Tests:** `flutter test` (when tests exist)
-- **Analyzer:** `flutter analyze` — must be clean before commit
+- **Analyze:** `flutter analyze` — must be clean before commit
 - **Format:** `dart format .`
-- **Codegen:** `dart run build_runner build --delete-conflicting-outputs`
 
 ## Security expectations
 - Never commit Firebase service account JSON or `.env` files.
 - Never log user emails, passwords, or session passwords.
-- Session passwords must be **hashed** before storing in Firestore — never plain text.
-- Firestore Security Rules **not yet set up** — currently using default test mode.
-  Before launch, must add `firestore.rules` at repo root that enforces:
-  - Users can only edit their own profile
-  - Only the host can edit/delete a session
-  - Private session contents only readable to participants
-  - Only friends can chat with each other
+- Session passwords must be **hashed** before storing in Firestore.
+  Use `crypto` package SHA-256 with a per-session salt.
+- **Storage rules:** in place for `users/{uid}/*` (size + content-type
+  limits, owner-only write).
+- **Firestore rules:** currently permissive (`request.auth != null`).
+  Before launch, tighten to enforce:
+  - Users can only edit their own profile.
+  - Only the host can edit/delete a session.
+  - Private session contents only readable to participants.
+  - Only friends can chat with each other.
+  - Friend / request docs writable only by sender + recipient.
+- **Auth domain:** `gmail.com` is in `kAllowedEmailDomains` as a dev-only
+  exception (unreliable `@kmutt.ac.th` email delivery during development).
+  Remove it before first external beta or production release. See ADR 0011.
+
+## Agent team
+Agent definitions live in `.claude/agents/`:
+
+**Writers** (can edit code/docs):
+- **flutter-engineer** — Dart code, widgets, screens, providers, models.
+- **firebase-specialist** — Services layer, Firestore queries,
+  security rules, batch writes, denormalization.
+- **architect** — Designs and decision records. Writes to `docs/`
+  only — never touches `lib/`.
+- **docs-writer** — Prose docs, runbooks, presentation outlines.
+  Writes to `docs/` and root `*.md` (never ADRs, never code).
+- **qa-engineer** — Tests under `test/` and `integration_test/`.
+  Never edits production code.
+
+**Reviewers** (read-only):
+- **code-reviewer** — General review: conventions, bugs, architecture
+  violations. Invoke after writer agents.
+- **security-reviewer** — Auth, crypto, PII, Firestore/Storage rules.
+  Invoke in parallel with code-reviewer on diffs touching auth,
+  passwords, friend graph, or rules.
+
+Each agent reads this file plus `PROJECT_STRUCTURE.md` on every spawn.
+You (the human) act as the orchestrator: pick the right agent(s),
+delegate, integrate their outputs.
 
 ## Project status
-Currently building beta 0.2. Models layer is in progress.
-UI is mostly done. Services layer is next.
+Beta 0.2 in progress.
+- ✅ Auth (signup, login, email verification, domain check)
+- ✅ Profile feature (own profile + other-user profile, avatar upload)
+- ✅ Friend system (full)
+- ⚙️ Session service — next major task
+- ⚙️ Participation, chat, notification services — pending

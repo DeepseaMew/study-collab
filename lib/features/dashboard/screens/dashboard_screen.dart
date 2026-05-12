@@ -56,9 +56,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     );
 
     // Sessions list (mock for now).
-    final allSessions = ref.watch(dashboardSessionsProvider);
-    final unreadCount = ref.watch(unreadNotificationCountProvider);
+    final asyncSessions = ref.watch(dashboardSessionsProvider);
+final allSessions = asyncSessions.asData?.value ?? [];
 
+// Debug: print errors and loading state
+asyncSessions.whenOrNull(
+  error: (e, _) => debugPrint('[dashboard] error: $e'),
+);
+
+if (asyncSessions.hasError) {
+  return Center(child: Text('Dashboard error: ${asyncSessions.error}'));
+}
+    final unreadCount = ref.watch(unreadNotificationCountProvider);
+    
     // Discover feed = sessions the user has not joined / hosted yet.
     final discoverSessions = allSessions
         .where((s) => s.myStatus == JoinStatus.notJoined)

@@ -78,7 +78,7 @@ class _SearchBottomSheetState extends ConsumerState<SearchBottomSheet> {
   @override
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
-    final allSessions = ref.watch(dashboardSessionsProvider);
+    final allSessions = ref.watch(dashboardSessionsProvider).asData?.value ?? [];
 
     // Derive sorted unique subjects from sessions present
     final subjects = allSessions.map((s) => s.subject).toSet().toList()

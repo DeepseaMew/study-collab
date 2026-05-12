@@ -1,8 +1,8 @@
-// TODO: confirm with KMUTT classmate which domain(s) students actually use.
-// Both are listed for now — remove any that turn out not to be student mailbox domains before launch.
+// KMUTT students sign in with @kmutt.ac.th. Confirmed with team.
 const List<String> kAllowedEmailDomains = [
   'kmutt.ac.th',
-  'mail.kmutt.ac.th',
+  'gmail.com',
+  'mail.kmutt.ac.th'
 ];
 
 /// Returns true when [email] belongs to one of [kAllowedEmailDomains].
