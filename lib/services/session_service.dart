@@ -258,11 +258,27 @@ class SessionService {
         .collection(FirestoreCollections.users)
         .doc(session.hostId);
 
+    // GroupChat metadata singleton — created atomically with the session doc
+    // so the doc always exists before the first member opens chat (ADR 0013).
+    final groupChatMetaRef = _firestore
+        .collection(FirestoreCollections.sessions)
+        .doc(sessionRef.id)
+        .collection(FirestoreCollections.groupChat)
+        .doc('meta');
+
     try {
       final batch = _firestore.batch();
       batch.set(sessionRef, sessionData);
       batch.set(hostMemberRef, hostMemberData);
       batch.update(userRef, {'sessionsCount': FieldValue.increment(1)});
+      batch.set(groupChatMetaRef, {
+        'lastMessageText': '',
+        'lastMessageAt': now,
+        'lastMessageSenderId': null,
+        'unreadCounts': <String, int>{},
+        'createdAt': now,
+        'updatedAt': now,
+      });
       await batch.commit();
       return sessionRef.id;
     } catch (e) {
@@ -555,10 +571,17 @@ class SessionService {
             .doc(sessionId)
             .collection(FirestoreCollections.joinRequests)
             .get(),
+        // ADR 0013: delete group chat messages with the session.
+        _firestore
+            .collection(FirestoreCollections.sessions)
+            .doc(sessionId)
+            .collection(FirestoreCollections.messages)
+            .get(),
       ]);
 
       final membersSnap = results[0];
       final requestsSnap = results[1];
+      final messagesSnap = results[2];
 
       final ops = <void Function(WriteBatch)>[];
 
@@ -577,6 +600,19 @@ class SessionService {
       for (final reqDoc in requestsSnap.docs) {
         ops.add((b) => b.delete(reqDoc.reference));
       }
+
+      // ADR 0013: delete all group chat messages.
+      for (final msgDoc in messagesSnap.docs) {
+        ops.add((b) => b.delete(msgDoc.reference));
+      }
+
+      // ADR 0013: delete the groupChat/meta singleton doc.
+      final groupChatMetaRef = _firestore
+          .collection(FirestoreCollections.sessions)
+          .doc(sessionId)
+          .collection(FirestoreCollections.groupChat)
+          .doc('meta');
+      ops.add((b) => b.delete(groupChatMetaRef));
 
       ops.add((b) => b.delete(sessionRef));
 

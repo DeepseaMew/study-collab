@@ -24,6 +24,20 @@ service cloud.firestore {
         get(/databases/$(database)/documents/sessions/$(sessionId)/members/$(request.auth.uid)).data.role == 'host';
     }
 
+    // Checks whether the calling user is a participant in a DM conversation.
+    // Uses a get() on the chats doc — one Firestore read per rule evaluation
+    // (accepted cost at college scale, ADR 0016).
+    function isDmParticipant(dmId) {
+      return isSignedIn() &&
+        request.auth.uid in get(/databases/$(database)/documents/chats/$(dmId)).data.participantIds;
+    }
+
+    // Checks whether the calling user is friends with [otherUid].
+    // Uses an exists() on friends/{me}/userFriends/{other} (ADR 0015 / 0016).
+    function isFriendOf(otherUid) {
+      return exists(/databases/$(database)/documents/friends/$(request.auth.uid)/userFriends/$(otherUid));
+    }
+
     function isValidSession() {
       let d = request.resource.data;
       return d.title is string && d.title.size() > 0
@@ -116,12 +130,24 @@ service cloud.firestore {
       match /messages/{messageId} {
         allow read:   if isSessionMember(sessionId);
         allow create: if isSessionMember(sessionId)
-                      && request.resource.data.senderUid == request.auth.uid
+                      && request.resource.data.senderId == request.auth.uid
                       && request.resource.data.text is string
+                      && request.resource.data.text.size() > 0
                       && request.resource.data.text.size() <= 2000;
         allow update: if false;
-        allow delete: if isSessionHost(sessionId)
-                      || request.auth.uid == resource.data.senderUid;
+        // No deletion in v1 (ADR 0016 — locked scope decision).
+        allow delete: if false;
+      }
+
+      // ── groupChat metadata subcollection ────────────────────────
+      match /groupChat/{docId} {
+        allow read:   if isSessionMember(sessionId);
+        // Only the host creates it, atomically with the session doc (ADR 0013).
+        allow create: if isSessionHost(sessionId);
+        // Members update it to reset their unread counter or update lastMessage.
+        allow update: if isSessionMember(sessionId);
+        // Deleted by host when the session is permanently deleted.
+        allow delete: if isSessionHost(sessionId);
       }
 
       // ── Files subcollection ─────────────────────────────────────
@@ -135,11 +161,48 @@ service cloud.firestore {
       }
     }
 
-    // ── CHATS ────────────────────────────────────────────────────────
-    match /chats/{chatId} {
-      allow read, write: if false;
+    // ── CHATS (DM) ───────────────────────────────────────────────────
+    // dmId is deterministic: {smallerUid}_{largerUid} (ADR 0012).
+    match /chats/{dmId} {
+      allow read: if isDmParticipant(dmId);
+
+      // Conversation doc creation: caller must be in participantIds,
+      // exactly 2 participants, and must be friends with the other (ADR 0015).
+      allow create: if isSignedIn()
+        && request.auth.uid in request.resource.data.participantIds
+        && request.resource.data.participantIds.size() == 2
+        && isFriendOf(
+             request.resource.data.participantIds[
+               request.resource.data.participantIds[0] == request.auth.uid ? 1 : 0
+             ]
+           );
+
+      // Updates allowed to participants (counter reset + lastMessage preview).
+      allow update: if isDmParticipant(dmId);
+
+      allow delete: if false;
+
       match /messages/{messageId} {
-        allow read, write: if false;
+        allow read: if isDmParticipant(dmId);
+
+        // Message create: must be a participant, senderId matches caller, text
+        // is non-empty and within limit, and friendship is re-checked at write
+        // time so ex-friends cannot send new messages (ADR 0015 / 0016).
+        // This path costs 2 get() calls — accepted for college scale (ADR 0016).
+        allow create: if isDmParticipant(dmId)
+                      && request.resource.data.senderId == request.auth.uid
+                      && request.resource.data.text is string
+                      && request.resource.data.text.size() > 0
+                      && request.resource.data.text.size() <= 2000
+                      && isFriendOf(
+                           get(/databases/$(database)/documents/chats/$(dmId)).data.participantIds[
+                             get(/databases/$(database)/documents/chats/$(dmId)).data.participantIds[0]
+                               == request.auth.uid ? 1 : 0
+                           ]
+                         );
+        // No editing or deletion in v1 (ADR 0016).
+        allow update: if false;
+        allow delete: if false;
       }
     }
 

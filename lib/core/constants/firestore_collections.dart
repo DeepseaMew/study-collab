@@ -19,4 +19,8 @@ class FirestoreCollections {
   /// Top-level collection for session member ratings.
   /// Doc ID is deterministic: {sessionId}_{raterId}_{ratedUserId}
   static const ratings = 'ratings';
+
+  /// Subcollection under sessions/{sessionId}/groupChat/meta — group chat
+  /// metadata singleton (ADR 0013).
+  static const groupChat = 'groupChat';
 }

@@ -92,6 +92,19 @@ declared explicitly.
 
 ---
 
+## chats (DM conversations)
+
+### DM conversation list for a user
+- **Collection:** `chats`
+- **Query scope:** Collection
+- **Fields:** `participantIds` Array, `lastMessageAt` Descending
+- **Used by:** `chat_service.watchMyConversations(uid)`
+- **Why:** array-contains filter on `participantIds` combined with
+  `lastMessageAt DESC` ordering requires a composite index. Firestore
+  does not auto-generate composite indexes (ADR 0012).
+
+---
+
 ## friendRequests
 
 No composite indexes needed.
