@@ -1,6 +1,4 @@
-// CHANGED: new screen — full day session list with create-session action row
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:study_collab/core/theme/app_theme.dart';
@@ -48,9 +46,6 @@ class DaySessionsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
         children: [
-          // CHANGED: create-session action row
-          _CreateSessionRow(day: day),
-          const SizedBox(height: 4),
           // CHANGED: session count label
           Text(
             '$n sessions · sorted by start time',
@@ -65,43 +60,3 @@ class DaySessionsScreen extends StatelessWidget {
   }
 }
 
-// CHANGED: local create-session action row (same visual as calendar_screen)
-class _CreateSessionRow extends StatelessWidget {
-  final DateTime day;
-
-  const _CreateSessionRow({required this.day});
-
-  @override
-  Widget build(BuildContext context) {
-    final tt = Theme.of(context).textTheme;
-
-    return GestureDetector(
-      onTap: () => context.push('/create-session', extra: day),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.secondary,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: const Color(0xFF5186CD),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Icon(Icons.add, color: Colors.white, size: 16),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              'Create session on ${DateFormat('MMMM d').format(day)}',
-              style: tt.bodyMedium,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
