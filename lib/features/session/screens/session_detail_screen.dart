@@ -952,7 +952,7 @@ class _JoinActionRow extends ConsumerWidget {
             foregroundColor: AppColors.hint,
             minimumSize: const Size(double.infinity, 48),
           ),
-          onPressed: null,
+          onPressed: () => context.push('/session/${session.id}/chat'),
           icon: const Icon(Icons.message_outlined, size: 18),
           label: const Text('Message Group'),
         );

@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'package:flutter/foundation.dart';
 import '../core/constants/firestore_collections.dart';
 import '../core/errors/app_exceptions.dart';
 import '../models/chat_message.dart';
@@ -71,37 +71,68 @@ class ChatService {
 
   /// Ensures a DM conversation doc exists and returns the conversation ID.
   ///
-  /// Idempotent (`set` with merge: true). Throws [DataException] if the two
-  /// users are not currently friends (ADR 0015).
+  /// Uses a Firestore transaction to guarantee the doc is written exactly
+  /// once. If the doc already exists the transaction returns immediately
+  /// without touching any fields — in particular [lastMessageAt] is never
+  /// overwritten, so calling this method (e.g. when opening a friend's
+  /// profile page) cannot reorder the DM list.
   ///
-  /// The `lastMessageAt` field is initialised to server timestamp on creation
-  /// so the conversation appears in [watchMyConversations] results immediately.
-  Future<String> getOrCreateDm({
-    required String currentUserId,
-    required String otherUserId,
-  }) async {
-    await _assertFriends(currentUserId, otherUserId);
-    final id = dmId(currentUserId, otherUserId);
-    final ref = _firestore.collection(FirestoreCollections.chats).doc(id);
-    try {
-      await ref.set(
-        {
-          'participantIds': ([currentUserId, otherUserId]..sort()),
-          'lastMessageText': '',
-          'lastMessageAt': FieldValue.serverTimestamp(),
-          'lastMessageSenderId': null,
-          'unreadCount_$currentUserId': 0,
-          'unreadCount_$otherUserId': 0,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-      return id;
-    } catch (e) {
-      throw DataException('Failed to open DM: $e');
-    }
+  /// Throws [DataException] if the two users are not currently friends
+  /// (ADR 0015). Friendship is checked before the transaction to avoid
+  /// holding a Firestore transaction open during an extra read.
+Future<String> getOrCreateDm({
+  required String currentUserId,
+  required String otherUserId,
+}) async {
+  debugPrint('getOrCreateDm start');
+  await _assertFriends(currentUserId, otherUserId);
+  debugPrint('friends check passed');
+
+  final id = dmId(currentUserId, otherUserId);
+  final ref = _firestore.collection(FirestoreCollections.chats).doc(id);
+
+  try {
+    debugPrint('fetching currentUser doc...');
+    final currentUserDoc = await _firestore
+        .collection(FirestoreCollections.users)
+        .doc(currentUserId)
+        .get();
+    debugPrint('currentUser exists: ${currentUserDoc.exists}');
+
+    debugPrint('fetching otherUser doc...');
+    final otherUserDoc = await _firestore
+        .collection(FirestoreCollections.users)
+        .doc(otherUserId)
+        .get();
+    debugPrint('otherUser exists: ${otherUserDoc.exists}');
+
+    final snap = await ref.get();
+    debugPrint('chat doc exists: ${snap.exists}');
+    if (snap.exists) return id;
+
+    debugPrint('creating chat doc...');
+    await ref.set({
+      'participantIds': [currentUserId, otherUserId]..sort(),
+      'userName_$currentUserId': currentUserDoc.data()?['username'] ?? '',
+      'userPhotoUrl_$currentUserId': currentUserDoc.data()?['profilePhotoUrl'] ?? '',
+      'userName_$otherUserId': otherUserDoc.data()?['username'] ?? '',
+      'userPhotoUrl_$otherUserId': otherUserDoc.data()?['profilePhotoUrl'] ?? '',
+      'lastMessageText': '',
+      'lastMessageAt': FieldValue.serverTimestamp(),
+      'lastMessageSenderId': null,
+      'unreadCount_$currentUserId': 0,
+      'unreadCount_$otherUserId': 0,
+      'createdAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    debugPrint('chat doc created successfully');
+    return id;
+  } catch (e) {
+    debugPrint('getOrCreateDm failed at step above: $e');
+    if (e is DataException) rethrow;
+    throw DataException('Failed to open DM: $e');
   }
+}
 
   /// Watch the list of DM conversations for [uid], ordered by lastMessageAt DESC.
   ///

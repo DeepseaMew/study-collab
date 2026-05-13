@@ -123,10 +123,3 @@ Each agent reads this file plus `PROJECT_STRUCTURE.md` on every spawn.
 You (the human) act as the orchestrator: pick the right agent(s),
 delegate, integrate their outputs.
 
-## Project status
-Beta 0.2 in progress.
-- ✅ Auth (signup, login, email verification, domain check)
-- ✅ Profile feature (own profile + other-user profile, avatar upload)
-- ✅ Friend system (full)
-- ⚙️ Session service — next major task
-- ⚙️ Participation, chat, notification services — pending

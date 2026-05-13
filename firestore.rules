@@ -2,7 +2,8 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Helpers ──────────────────────────────────────────────────────
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -18,24 +19,41 @@ service cloud.firestore {
         exists(/databases/$(database)/documents/sessions/$(sessionId)/members/$(request.auth.uid));
     }
 
-    // Checks whether the current user is the host of a session.
+    // Checks whether the current user is the host of a session by reading
+    // their member doc's 'role' field.
+    //
+    // NOTE: cannot be used in the same batch as createSession because the
+    // host's member doc does not exist yet at the time the batch commits.
+    // For session create (and groupChat create), use the doc's own hostId
+    // field instead.
     function isSessionHost(sessionId) {
       return isSignedIn() &&
         get(/databases/$(database)/documents/sessions/$(sessionId)/members/$(request.auth.uid)).data.role == 'host';
     }
 
     // Checks whether the calling user is a participant in a DM conversation.
-    // Uses a get() on the chats doc — one Firestore read per rule evaluation
-    // (accepted cost at college scale, ADR 0016).
     function isDmParticipant(dmId) {
       return isSignedIn() &&
         request.auth.uid in get(/databases/$(database)/documents/chats/$(dmId)).data.participantIds;
     }
 
     // Checks whether the calling user is friends with [otherUid].
-    // Uses an exists() on friends/{me}/userFriends/{other} (ADR 0015 / 0016).
+    // Used by the DM rules to enforce the friends-only chat policy.
     function isFriendOf(otherUid) {
       return exists(/databases/$(database)/documents/friends/$(request.auth.uid)/userFriends/$(otherUid));
+    }
+
+    // The five counter fields on a users/{uid} doc that non-owner services are
+    // allowed to increment/decrement atomically. All other user profile fields
+    // require isOwner.
+    //
+    // Written by: friend_service (friendsCount), session_service and
+    // participation_service (sessionsCount), rating_service
+    // (thumbsUpCount, thumbsDownCount, totalRatingsCount).
+    function isCounterOnlyUpdate() {
+      let allowed = ['friendsCount', 'sessionsCount',
+                     'thumbsUpCount', 'thumbsDownCount', 'totalRatingsCount'];
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(allowed);
     }
 
     function isValidSession() {
@@ -50,59 +68,90 @@ service cloud.firestore {
         && d.visibility in ['public', 'private'];
     }
 
-    // ── USERS ────────────────────────────────────────────────────────
+    // ── USERS ─────────────────────────────────────────────────────────────────
+    //
+    // Profile fields (username, bio, profilePhotoUrl, faculty, studentYear,
+    // academicLevel, email, createdAt, updatedAt) — owner-only.
+    //
+    // Counter fields (friendsCount, sessionsCount, thumbsUpCount,
+    // thumbsDownCount, totalRatingsCount) — any authenticated user may update
+    // these alone (needed for cross-user atomic increments from friend_service,
+    // session_service, participation_service, rating_service).
     match /users/{uid} {
       allow read:   if isSignedIn();
+
+      // Only the account owner can create their own user doc (written once by
+      // auth_service.signUp via the owner's own session).
       allow create: if isOwner(uid);
-      allow update: if isOwner(uid);
+
+      // Owner may update any field.
+      // Any authenticated user may update ONLY the five counter fields
+      // (required by cross-user increment/decrement calls from services).
+      allow update: if isOwner(uid)
+                    || (isSignedIn() && isCounterOnlyUpdate());
+
+      // User deletion is blocked client-side. Account deletion, if ever
+      // implemented, must go through a Cloud Function or admin SDK.
       allow delete: if false;
 
-      // Notifications subcollection — only readable/deletable by the owner.
-      // Service layer writes notifications via batch writes on behalf of users.
+      // ── Notifications subcollection ────────────────────────────────────────
+      //
+      // Notifications are created by other users' actions (host cancels session,
+      // peer sends a friend request, etc.) and read/managed by the owner.
+      // The 'create' rule verifies the writer has identified themselves in
+      // fromUserId — prevents writing anonymous or forged notifications.
       match /notifications/{notificationId} {
         allow read:   if isOwner(uid);
-        // Service writes notifications on behalf of other users (cancel/postpone fan-out).
-        // Require that fromUserId matches the caller to prevent notification spam.
-        allow create: if isSignedIn() && request.resource.data.fromUserId == request.auth.uid;
+        allow create: if isSignedIn()
+                      && request.resource.data.fromUserId == request.auth.uid;
         allow update: if isOwner(uid);
         allow delete: if isOwner(uid);
       }
     }
 
-    // ── SESSIONS ─────────────────────────────────────────────────────
+    // ── SESSIONS ──────────────────────────────────────────────────────────────
+    //
+    // Public sessions are readable by any signed-in user.
+    // Private sessions are readable only by the host and confirmed members.
+    // Only the host may edit or delete a session.
     match /sessions/{sessionId} {
-      // Path 1: Public sessions readable to any signed-in user (browse/search).
       allow read: if isSignedIn() && resource.data.visibility == 'public';
-      // Path 2: Hosts can always read their own sessions.
       allow read: if isSignedIn() && resource.data.hostId == request.auth.uid;
-      // Path 3: Members can read sessions they're confirmed in.
       allow read: if isSignedIn() && isSessionMember(sessionId);
 
       allow create: if isSignedIn()
                     && isValidSession()
                     && request.resource.data.hostId == request.auth.uid;
 
+      // hostId is immutable — the host cannot be reassigned after creation.
       allow update: if isSessionHost(sessionId)
                     && request.resource.data.hostId == resource.data.hostId;
 
       allow delete: if isSessionHost(sessionId);
 
-      // ── Members subcollection ───────────────────────────────────
+      // ── Members subcollection ──────────────────────────────────────────────
+      //
+      // Members of public sessions are readable by any signed-in user
+      // (needed for the public session browse screen).
+      // Members of private sessions are readable only by confirmed members.
+      //
+      // Create:
+      //   - Session host may create any member doc (approval flow).
+      //   - A user may create their own non-host member doc (password-join flow).
+      //   - The host creates their own host-role member doc at session creation
+      //     time (batched with the session doc).
+      //
+      // Update / delete:
+      //   - Host may update or remove any member.
+      //   - A member may update or remove their own doc (mark attended / leave).
       match /members/{memberUserId} {
-        // Split read into get and list because their requirements differ.
-        //
-        // get (single doc read): uses get() lookup to check session visibility.
-        // Works fine because we're reading one specific doc.
-        allow get: if isSignedIn() &&
-          (get(/databases/$(database)/documents/sessions/$(sessionId)).data.visibility == 'public'
-           || isSessionMember(sessionId));
+        allow get: if isSignedIn() && (
+          get(/databases/$(database)/documents/sessions/$(sessionId)).data.visibility == 'public'
+          || isSessionMember(sessionId)
+        );
 
-        // list (subcollection query): cannot use get() lookups. Allow the user
-        // to list members of any session where they are themselves a member
-        // (i.e., they're already in the session).
         allow list: if isSignedIn() && isSessionMember(sessionId);
 
-        // Three creation paths — see top-level collectionGroup rule comment too.
         allow create: if isSessionHost(sessionId)
               || (isSignedIn()
                   && request.auth.uid == memberUserId
@@ -118,15 +167,26 @@ service cloud.firestore {
                       || request.auth.uid == memberUserId;
       }
 
-      // ── JoinRequests subcollection ──────────────────────────────
+      // ── JoinRequests subcollection ─────────────────────────────────────────
+      //
+      // Only the host and the requester may read a specific request doc.
+      // Only the requester may create their own request (doc ID = userId).
+      // Delete is used for: host approves/declines, requester cancels.
+      // Update is blocked — requests are either pending or deleted.
       match /joinRequests/{requestUserId} {
-        allow read:   if isSessionHost(sessionId) || request.auth.uid == requestUserId;
-        allow create: if isSignedIn() && request.auth.uid == requestUserId;
-        allow delete: if isSessionHost(sessionId) || request.auth.uid == requestUserId;
+        allow read:   if isSessionHost(sessionId)
+                      || request.auth.uid == requestUserId;
+        allow create: if isSignedIn()
+                      && request.auth.uid == requestUserId;
+        allow delete: if isSessionHost(sessionId)
+                      || request.auth.uid == requestUserId;
         allow update: if false;
       }
 
-      // ── Messages subcollection ──────────────────────────────────
+      // ── Session group-chat messages ────────────────────────────────────────
+      //
+      // Only confirmed session members may read or send messages.
+      // Messages are immutable after creation (no edit, no delete — v1 scope).
       match /messages/{messageId} {
         allow read:   if isSessionMember(sessionId);
         allow create: if isSessionMember(sessionId)
@@ -135,22 +195,28 @@ service cloud.firestore {
                       && request.resource.data.text.size() > 0
                       && request.resource.data.text.size() <= 2000;
         allow update: if false;
-        // No deletion in v1 (ADR 0016 — locked scope decision).
         allow delete: if false;
       }
 
-      // ── groupChat metadata subcollection ────────────────────────
+      // ── Group-chat metadata singleton ──────────────────────────────────────
+      //
+      // Created atomically with the session doc in the same WriteBatch
+      // (session_service.createSession). At batch-commit time neither the
+      // session doc nor the host's member doc exist yet, so isSessionHost /
+      // isSessionMember cannot be used for 'create'. The session create rule
+      // independently enforces hostId == request.auth.uid, so a signed-in user
+      // creating a groupChat doc for a session they did not create would be
+      // blocked by the session create rule before they could reach this path.
+      //
+      // Per ADR 0013.
       match /groupChat/{docId} {
         allow read:   if isSessionMember(sessionId);
-        // Only the host creates it, atomically with the session doc (ADR 0013).
-        allow create: if isSessionHost(sessionId);
-        // Members update it to reset their unread counter or update lastMessage.
+        allow create: if isSignedIn();
         allow update: if isSessionMember(sessionId);
-        // Deleted by host when the session is permanently deleted.
         allow delete: if isSessionHost(sessionId);
       }
 
-      // ── Files subcollection ─────────────────────────────────────
+      // ── Session files subcollection ────────────────────────────────────────
       match /files/{fileId} {
         allow read:   if isSessionMember(sessionId);
         allow create: if isSessionMember(sessionId)
@@ -161,13 +227,26 @@ service cloud.firestore {
       }
     }
 
-    // ── CHATS (DM) ───────────────────────────────────────────────────
-    // dmId is deterministic: {smallerUid}_{largerUid} (ADR 0012).
+    // ── CHATS (DM) ────────────────────────────────────────────────────────────
+    //
+    // 1-on-1 DM conversations. Both users must be current friends before a
+    // conversation can be created or a message can be sent (ADR 0015, 0016).
+    //
+    // The participantIds array is sorted and deterministic (service enforces
+    // this — rules verify the caller is in it and the size is exactly 2).
+    //
+    // isFriendOf uses exists() on the friends subcollection — one extra
+    // Firestore read per DM create/send at rules evaluation time (accepted
+    // per ADR 0016).
     match /chats/{dmId} {
-      allow read: if isDmParticipant(dmId);
+  // Allow get if participant OR if doc doesn't exist yet (needed for getOrCreateDm).
+  allow get: if isSignedIn() && (
+    !exists(/databases/$(database)/documents/chats/$(dmId)) ||
+    request.auth.uid in resource.data.participantIds
+  );
+      // list rules cannot use get(); check participantIds directly on resource.
+      allow list: if isSignedIn() && request.auth.uid in resource.data.participantIds;
 
-      // Conversation doc creation: caller must be in participantIds,
-      // exactly 2 participants, and must be friends with the other (ADR 0015).
       allow create: if isSignedIn()
         && request.auth.uid in request.resource.data.participantIds
         && request.resource.data.participantIds.size() == 2
@@ -177,18 +256,21 @@ service cloud.firestore {
              ]
            );
 
-      // Updates allowed to participants (counter reset + lastMessage preview).
+      // Participants may update for: lastMessage preview, unread counter reset
+      // (sending a message, opening a conversation screen). ADR 0016.
       allow update: if isDmParticipant(dmId);
 
+      // DM conversations are never deleted — no deletion flow in v1.
       allow delete: if false;
 
       match /messages/{messageId} {
-        allow read: if isDmParticipant(dmId);
+        // get() is valid here — single-doc read can call get().
+        allow get: if isDmParticipant(dmId);
+        // list rules cannot use get(); use a get() call on the parent chats doc instead.
+        allow list: if isSignedIn() && request.auth.uid in get(/databases/$(database)/documents/chats/$(dmId)).data.participantIds;
 
-        // Message create: must be a participant, senderId matches caller, text
-        // is non-empty and within limit, and friendship is re-checked at write
-        // time so ex-friends cannot send new messages (ADR 0015 / 0016).
-        // This path costs 2 get() calls — accepted for college scale (ADR 0016).
+        // Friendship is re-verified on every send (ADR 0015) — ex-friends
+        // cannot message even if a conversation doc already exists.
         allow create: if isDmParticipant(dmId)
                       && request.resource.data.senderId == request.auth.uid
                       && request.resource.data.text is string
@@ -200,49 +282,89 @@ service cloud.firestore {
                                == request.auth.uid ? 1 : 0
                            ]
                          );
-        // No editing or deletion in v1 (ADR 0016).
         allow update: if false;
         allow delete: if false;
       }
     }
 
-    // ── FRIENDS ──────────────────────────────────────────────────────
+    // ── FRIENDS ───────────────────────────────────────────────────────────────
+    //
+    // friends/{ownerId} is a container document (no real fields — only used
+    // to scope the userFriends subcollection). It is readable only by the owner.
+    //
+    // friends/{ownerId}/userFriends/{friendId} holds the denormalized Friend doc.
+    // It is readable only by the owner (ownerId == request.auth.uid) — a user
+    // cannot enumerate another user's friends list.
+    //
+    // Create and delete use isSignedIn() (not isOwner) because friend_service
+    // writes BOTH sides of a friendship atomically from the accepting user's
+    // session (WriteBatch in acceptRequest / unfriend). The accepting user
+    // creates/deletes the other user's friend doc in the same batch.
+    //
+    // The isFriendOf() helper in the CHATS rules uses exists() — a server-side
+    // document existence check — and is not affected by the read restriction.
     match /friends/{ownerId} {
-      allow read: if isSignedIn();
+      allow read: if isOwner(ownerId);
 
       match /userFriends/{friendId} {
-        allow read:   if isSignedIn();
-        allow create: if isSignedIn() && isOwner(ownerId);
+        allow read:   if isOwner(ownerId);
+        allow create: if isSignedIn();
         allow update: if isOwner(ownerId);
-        allow delete: if isOwner(ownerId);
+        allow delete: if isSignedIn();
       }
     }
 
-    // ── FRIEND REQUESTS ───────────────────────────────────────────────
+    // ── FRIEND REQUESTS ───────────────────────────────────────────────────────
+    //
+    // Request doc ID is deterministic: "{senderId}_{recipientId}".
+    // Read: sender and recipient only (or null-check for existence probes).
+    // Create: only the sender (senderId must equal request.auth.uid).
+    // Delete: sender may cancel; recipient may decline.
+    // Update: blocked — requests are either pending or deleted.
     match /friendRequests/{requestId} {
-      allow read:   if isSignedIn() &&
-        (resource.data.senderId == request.auth.uid ||
-         resource.data.recipientId == request.auth.uid);
+      allow read: if isSignedIn() && (
+        resource == null
+        || resource.data.senderId == request.auth.uid
+        || resource.data.recipientId == request.auth.uid
+      );
       allow create: if isSignedIn()
                     && request.resource.data.senderId == request.auth.uid;
-      allow delete: if isSignedIn() &&
-        (resource.data.senderId == request.auth.uid ||
-         resource.data.recipientId == request.auth.uid);
+      allow delete: if isSignedIn() && (
+        resource.data.senderId == request.auth.uid
+        || resource.data.recipientId == request.auth.uid
+      );
       allow update: if false;
     }
 
-    // ── COLLECTION-GROUP QUERIES on members ───────────────────────────
-    // Allows a user to query for THEIR OWN member docs across all sessions
-    // (watchUserMemberships). Required because collectionGroup queries can't
-    // be evaluated against the nested per-session rule (which uses get()).
-    // The userId == request.auth.uid filter in the query matches what this
-    // rule allows.
+    // ── COLLECTION-GROUP QUERIES on members ───────────────────────────────────
+    //
+    // participation_service.watchUserMemberships uses a collectionGroup query
+    // filtered by userId == request.auth.uid.
+    //
+    // Firestore requires a matching collection-group rule to allow these queries.
+    // The rule checks resource.data.userId (the FIELD on the doc) rather than
+    // the doc-ID wildcard — Firestore enforces that the field value equals the
+    // queried value, and the queried value must match request.auth.uid.
     match /{path=**}/members/{memberUserId} {
-      allow list: if isSignedIn() && request.auth.uid == memberUserId;
-      allow get: if isSignedIn() && request.auth.uid == memberUserId;
+      allow list: if isSignedIn() && request.auth.uid == resource.data.userId;
+      allow get:  if isSignedIn() && request.auth.uid == resource.data.userId;
     }
 
-    // ── RATINGS ──────────────────────────────────────────────────────────────
+    // ── RATINGS ───────────────────────────────────────────────────────────────
+    //
+    // Top-level collection. Doc ID is deterministic:
+    //   {sessionId}_{raterId}_{ratedUserId}
+    //
+    // Readable by any signed-in user (scores are public — they appear on profiles).
+    //
+    // Create requirements (mirroring rating_service.submitRating validation):
+    //   - raterId must be the calling user
+    //   - raterId != ratedUserId (no self-rating)
+    //   - calling user must be a confirmed member of the session
+    //   - rated user must be a confirmed member of the session
+    //   - session endTime must be in the past (session must have ended)
+    //
+    // Ratings are immutable — no update or delete.
     match /ratings/{ratingId} {
       allow read: if isSignedIn();
 

@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_collab/models/session.dart';
-import 'package:study_collab/core/widgets/coming_soon_screen.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
@@ -23,6 +22,9 @@ import '../../features/session/screens/members_list_screen.dart';
 import '../../features/session/screens/requests_screen.dart';
 import '../../features/my_sessions/screens/host_session_detail_screen.dart';
 import '../../features/my_sessions/screens/member_session_detail_screen.dart';
+import '../../features/chat/screens/messages_screen.dart';
+import '../../features/chat/screens/dm_list_screen.dart';
+import '../../features/chat/screens/dm_screen.dart';
 import '../widgets/main_shell.dart';
 
 /// Riverpod provider for the app router.
@@ -77,13 +79,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/my-sessions',
             builder: (c, s) => const MySessionsScreen(),
           ),
-          GoRoute(
-            path: '/messages',
-            builder: (c, s) => const ComingSoonScreen(
-              title: 'Messages',
-              subtitle: 'Chat and messaging are coming soon.',
-            ),
-          ),
+          GoRoute(path: '/messages', builder: (c, s) => const MessagesScreen()),
           GoRoute(path: '/profile', builder: (c, s) => const ProfileScreen()),
           GoRoute(
             path: '/user/:userId',
@@ -137,6 +133,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/session/:id/requests',
         builder: (c, s) => RequestsScreen(sessionId: s.pathParameters['id']!),
+      ),
+
+      // ── Chat: DM list & DM conversation (no bottom nav) ───────────────────
+      GoRoute(path: '/messages/dm', builder: (c, s) => const DmListScreen()),
+      GoRoute(
+        path: '/messages/dm/:conversationId',
+        builder: (c, s) =>
+            DmScreen(conversationId: s.pathParameters['conversationId']!),
       ),
 
       // ── Other ──────────────────────────────────────────────────────────────

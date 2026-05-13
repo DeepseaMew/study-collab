@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'package:go_router/go_router.dart';
+import '../../../services/chat_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../models/app_user.dart';
 import '../../../services/friend_service.dart';
@@ -189,17 +190,20 @@ class _FriendActions extends ConsumerWidget {
         Expanded(
           child: statusAsync.maybeWhen(
             data: (status) {
-              final canChat = status == FriendshipStatus.friends;
-              return ElevatedButton.icon(
-                onPressed: canChat
-                    ? () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Messaging coming soon'),
-                          ),
-                        );
-                      }
-                    : null,
+final canChat = status == FriendshipStatus.friends;
+return ElevatedButton.icon(
+  onPressed: canChat
+      ? () async {
+          final chatService = ref.read(chatServiceProvider);
+          final conversationId = await chatService.getOrCreateDm(
+            currentUserId: currentUser.id,
+            otherUserId: otherUser.id,
+          );
+          if (context.mounted) {
+            context.push('/messages/dm/$conversationId');
+          }
+        }
+      : null,
                 icon: const Icon(Icons.chat_bubble_outline, size: 18),
                 label: const Text('Message'),
               );
