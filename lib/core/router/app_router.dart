@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:study_collab/models/session.dart';
 import 'package:study_collab/core/widgets/coming_soon_screen.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
@@ -14,6 +15,7 @@ import '../../features/profile/screens/other_user_profile_screen.dart';
 import '../../features/my_sessions/screens/my_sessions_screen.dart';
 import '../../features/settings/screens/settings_screen.dart';
 import '../../features/calendar/screens/calendar_screen.dart';
+import '../../features/calendar/screens/day_sessions_screen.dart';
 import '../../features/session/screens/create_session_screen.dart';
 import '../../features/session/screens/edit_session_screen.dart';
 import '../../features/session/screens/session_detail_screen.dart';
@@ -81,6 +83,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ),
           ),
           GoRoute(path: '/profile', builder: (c, s) => const ProfileScreen()),
+          // CHANGED: day-drill-down route — stays inside ShellRoute so bottom nav shows
+          GoRoute(
+            path: '/calendar/day',
+            builder: (c, s) {
+              final args = s.extra! as (DateTime, List<Session>);
+              return DaySessionsScreen(day: args.$1, sessions: args.$2);
+            },
+          ),
         ],
       ),
 
