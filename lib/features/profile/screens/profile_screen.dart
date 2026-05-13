@@ -215,9 +215,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
                   value: user.sessionsCount.toString(),
                 ),
                 Container(width: 1, height: 36, color: AppColors.border),
-                _StatItem(
-                  label: 'Friends',
-                  value: user.friendsCount.toString(),
+                // CHANGED: friends stat is tappable, "view all" cue below
+                GestureDetector(
+                  onTap: () => context.push('/friends/${user.id}'),
+                  child: _StatItem(
+                    label: 'Friends',
+                    value: user.friendsCount.toString(),
+                    subtitle: 'view all',
+                  ),
                 ),
                 Container(width: 1, height: 36, color: AppColors.border),
                 _RatingStatItem(sessionCount: user.sessionsCount),
@@ -242,10 +247,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   }
 }
 
+// CHANGED: added optional subtitle for "view all" cue
 class _StatItem extends StatelessWidget {
   final String label;
   final String value;
-  const _StatItem({required this.label, required this.value});
+  final String? subtitle;
+  const _StatItem({required this.label, required this.value, this.subtitle});
 
   @override
   Widget build(BuildContext context) {
@@ -256,6 +263,13 @@ class _StatItem extends StatelessWidget {
         Text(value, style: tt.displayMedium?.copyWith(color: AppColors.accent)),
         const SizedBox(height: 2),
         Text(label, style: tt.bodyMedium?.copyWith(color: AppColors.hint)),
+        if (subtitle != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            subtitle!,
+            style: tt.labelSmall?.copyWith(color: AppColors.accent),
+          ),
+        ],
       ],
     );
   }

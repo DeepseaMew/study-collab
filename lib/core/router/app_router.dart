@@ -23,6 +23,8 @@ import '../../features/session/screens/members_list_screen.dart';
 import '../../features/session/screens/requests_screen.dart';
 import '../../features/my_sessions/screens/host_session_detail_screen.dart';
 import '../../features/my_sessions/screens/member_session_detail_screen.dart';
+// CHANGED: friends list screen
+import '../../features/profile/screens/friends_list_screen.dart';
 import '../widgets/main_shell.dart';
 
 /// Riverpod provider for the app router.
@@ -89,6 +91,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/user/:userId',
             builder: (c, s) =>
                 OtherUserProfileScreen(userId: s.pathParameters['userId']!),
+          ),
+          // CHANGED: friends list route
+          GoRoute(
+            path: '/friends/:userId',
+            builder: (c, s) =>
+                FriendsListScreen(userId: s.pathParameters['userId']!),
           ),
           GoRoute(
             path: '/my-sessions/member/:id',
