@@ -81,6 +81,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ),
           ),
           GoRoute(path: '/profile', builder: (c, s) => const ProfileScreen()),
+          GoRoute(
+            path: '/user/:id',
+            builder: (c, s) =>
+                OtherUserProfileScreen(userId: s.pathParameters['id']!),
+          ),
         ],
       ),
 
@@ -108,11 +113,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
 
       // ── Other ──────────────────────────────────────────────────────────────
-      GoRoute(
-        path: '/user/:id',
-        builder: (c, s) =>
-            OtherUserProfileScreen(userId: s.pathParameters['id']!),
-      ),
       GoRoute(path: '/settings', builder: (c, s) => const SettingsScreen()),
     ],
   );
