@@ -90,16 +90,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             builder: (c, s) =>
                 OtherUserProfileScreen(userId: s.pathParameters['userId']!),
           ),
-          GoRoute(
-            path: '/my-sessions/member/:id',
-            builder: (c, s) =>
-                MemberSessionDetailScreen(sessionId: s.pathParameters['id']!),
-          ),
-          GoRoute(
-            path: '/my-sessions/:id',
-            builder: (c, s) =>
-                HostSessionDetailScreen(sessionId: s.pathParameters['id']!),
-          ),
           // CHANGED: day-drill-down route — stays inside ShellRoute so bottom nav shows
           GoRoute(
             path: '/calendar/day',
@@ -109,6 +99,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             },
           ),
         ],
+      ),
+
+      // ── My-sessions detail screens (No bottom bar) ────────────────────────
+      // CHANGED: moved out of ShellRoute so their keys never collide with
+      // /my-sessions list route.  These screens have their own AppBar + back
+      // button and do not need the shell's bottom navigation bar.
+      GoRoute(
+        path: '/my-sessions/member/:id',
+        builder: (c, s) =>
+            MemberSessionDetailScreen(sessionId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/my-sessions/:id',
+        builder: (c, s) =>
+            HostSessionDetailScreen(sessionId: s.pathParameters['id']!),
       ),
 
       // ── Session flows (No bottom bar) ──────────────────────────────────────
