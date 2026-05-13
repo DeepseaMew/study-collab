@@ -138,10 +138,7 @@ class SessionCard extends StatelessWidget {
                 // Join button area
                 Align(
                   alignment: Alignment.centerRight,
-                  child: _JoinArea(
-                    session: session,
-                    joinColor: _joinColor,
-                  ),
+                  child: _JoinArea(session: session, joinColor: _joinColor),
                 ),
               ],
             ),
@@ -157,8 +154,11 @@ class SessionCard extends StatelessWidget {
                   color: AppColors.hint.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
-                child: const Icon(Icons.lock_outline,
-                    size: 14, color: AppColors.hint),
+                child: const Icon(
+                  Icons.lock_outline,
+                  size: 14,
+                  color: AppColors.hint,
+                ),
               ),
             ),
         ],
@@ -248,12 +248,9 @@ class _JoinArea extends StatelessWidget {
           backgroundColor: AppColors.success,
           textColor: Colors.white,
         );
+      // CHANGED: replaced _StatusChip with _HostBadge for the host state
       case JoinStatus.host:
-        return const _StatusChip(
-          label: 'You\'re the Host',
-          backgroundColor: AppColors.accent,
-          textColor: Colors.white,
-        );
+        return const _HostBadge();
       case JoinStatus.pending:
         return const _StatusChip(
           label: 'Pending...',
@@ -355,6 +352,37 @@ class _StatusChip extends StatelessWidget {
           fontSize: 12,
           fontWeight: FontWeight.w600,
         ),
+      ),
+    );
+  }
+}
+
+// CHANGED: new host badge widget replacing the old _StatusChip host case
+class _HostBadge extends StatelessWidget {
+  const _HostBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEDE9FE),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: const [
+          Text('👑', style: TextStyle(fontSize: 10)),
+          SizedBox(width: 4),
+          Text(
+            'Your session',
+            style: TextStyle(
+              color: Color(0xFF3D6FB7),
+              fontSize: 10,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
