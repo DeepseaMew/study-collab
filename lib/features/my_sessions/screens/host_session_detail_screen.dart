@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -11,6 +12,10 @@ import 'package:study_collab/models/join_request.dart';
 import 'package:study_collab/models/participant.dart';
 import 'package:study_collab/models/session.dart';
 import 'package:study_collab/services/participation_service.dart';
+import 'package:study_collab/services/session_service.dart';
+
+// CHANGED: enum for host 3-dot menu actions
+enum _HostAction { edit, delete, copyLink }
 
 // ── Screen ─────────────────────────────────────────────────────────────────────
 
@@ -78,6 +83,99 @@ class _HostSessionDetailScreenState
           ),
         ),
         centerTitle: true,
+        // CHANGED: 3-dot menu for Edit / Delete / Copy Link
+        actions: [
+          if (sessionAsync.asData?.value != null)
+            PopupMenuButton<_HostAction>(
+              icon: const Icon(Icons.more_vert, color: Colors.white),
+              onSelected: (action) async {
+                final session = sessionAsync.asData!.value!;
+                switch (action) {
+                  case _HostAction.edit:
+                    context.push('/session/${session.id}/edit');
+
+                  case _HostAction.delete:
+                    final confirmed = await showDialog<bool>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: Text(
+                          'Delete Session?',
+                          style: Theme.of(ctx).textTheme.titleLarge,
+                        ),
+                        content: Text(
+                          'This will permanently remove the session and all its data. Members will be notified.',
+                          style: Theme.of(ctx).textTheme.bodyMedium,
+                        ),
+                        actions: [
+                          OutlinedButton(
+                            onPressed: () => Navigator.pop(ctx, false),
+                            child: const Text('Cancel'),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFE53E3E),
+                              foregroundColor: Colors.white,
+                            ),
+                            onPressed: () => Navigator.pop(ctx, true),
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ),
+                    );
+                    if (confirmed != true) return;
+                    try {
+                      await ref.read(sessionServiceProvider).deleteSession(
+                        sessionId: session.id,
+                        hostId: session.hostId,
+                      );
+                    } catch (e) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            e is AppException
+                                ? e.message
+                                : 'Failed to delete session',
+                          ),
+                          backgroundColor: AppColors.error,
+                        ),
+                      );
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Session deleted')),
+                    );
+                    context.pop();
+
+                  case _HostAction.copyLink:
+                    await Clipboard.setData(
+                      ClipboardData(
+                        text: 'studycollab://session/${session.id}',
+                      ),
+                    );
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Link copied!')),
+                    );
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: _HostAction.edit,
+                  child: Text('✏️ Edit Session'),
+                ),
+                PopupMenuItem(
+                  value: _HostAction.delete,
+                  child: Text('🗑️ Delete Session'),
+                ),
+                PopupMenuItem(
+                  value: _HostAction.copyLink,
+                  child: Text('🔗 Copy Invite Link'),
+                ),
+              ],
+            ),
+        ],
       ),
       body: sessionAsync.when(
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -384,6 +482,7 @@ class _MembersTab extends ConsumerWidget {
         const SizedBox(height: 32),
 
         // Message group button
+        // CHANGED: End Session button removed — delete is now in the 3-dot menu
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.accent,
@@ -399,32 +498,6 @@ class _MembersTab extends ConsumerWidget {
               const SnackBar(content: Text('Group messaging coming soon')),
             );
           },
-        ),
-        const SizedBox(height: 12),
-
-        // End session button
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppColors.error,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 48),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-          onPressed: () {
-            showModalBottomSheet<void>(
-              context: context,
-              isScrollControlled: true,
-              backgroundColor: Colors.transparent,
-              builder: (_) => _EndSessionSheet(
-                session: session,
-                members: members,
-                currentUserId: currentUserId,
-              ),
-            );
-          },
-          child: const Text('End Session'),
         ),
       ],
     );
@@ -831,310 +904,6 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// ── End Session Bottom Sheet ───────────────────────────────────────────────────
-
-class _EndSessionSheet extends ConsumerStatefulWidget {
-  final Session session;
-  final List<Participant> members;
-  final String currentUserId;
-
-  const _EndSessionSheet({
-    required this.session,
-    required this.members,
-    required this.currentUserId,
-  });
-
-  @override
-  ConsumerState<_EndSessionSheet> createState() => _EndSessionSheetState();
-}
-
-class _EndSessionSheetState extends ConsumerState<_EndSessionSheet> {
-  final Map<String, bool> _thumbsUp = {};
-  String _searchQuery = '';
-
-  @override
-  Widget build(BuildContext context) {
-    // Host row first, then remaining members — all shown, host not rateable
-    final sorted = [
-      ...widget.members.where((m) => m.userId == widget.session.hostId),
-      ...widget.members.where((m) => m.userId != widget.session.hostId),
-    ];
-
-    final filtered = _searchQuery.isEmpty
-        ? sorted
-        : sorted
-              .where(
-                (m) => m.username.toLowerCase().contains(
-                  _searchQuery.toLowerCase(),
-                ),
-              )
-              .toList();
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Drag handle
-              Container(
-                width: 40,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: AppColors.border,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-
-              // "SESSION ENDED" badge
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 4,
-                ),
-                decoration: BoxDecoration(
-                  color: AppColors.accent,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: const Text(
-                  'SESSION ENDED',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // Session name
-              Text(
-                widget.session.title,
-                style: const TextStyle(
-                  color: AppColors.text,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 4),
-
-              // Date + time
-              Text(
-                '${DateFormatter.relativeDate(widget.session.startTime)} · ${DateFormatter.timeRange(widget.session.startTime, widget.session.endTime)}',
-                style: const TextStyle(color: AppColors.hint, fontSize: 13),
-              ),
-              const SizedBox(height: 16),
-
-              // Section title
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Anyone stand out?',
-                  style: TextStyle(
-                    color: AppColors.text,
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Rate participants who contributed to the session.',
-                  style: TextStyle(color: AppColors.hint, fontSize: 13),
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // Search bar
-              TextField(
-                onChanged: (v) => setState(() => _searchQuery = v),
-                decoration: InputDecoration(
-                  hintText: 'Search participants by name',
-                  prefixIcon: const Icon(
-                    Icons.search_outlined,
-                    color: AppColors.hint,
-                  ),
-                  filled: true,
-                  fillColor: AppColors.background,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppColors.border),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                      color: AppColors.accent,
-                      width: 2,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 8),
-
-              // Participant list
-              ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: MediaQuery.of(context).size.height * 0.3,
-                ),
-                child: filtered.isEmpty
-                    ? const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 16),
-                        child: Text(
-                          'No participants found.',
-                          style: TextStyle(color: AppColors.hint, fontSize: 13),
-                        ),
-                      )
-                    : ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: filtered.length,
-                        itemBuilder: (ctx, i) {
-                          final participant = filtered[i];
-                          final isHost =
-                              participant.userId == widget.session.hostId;
-                          if (isHost) {
-                            return _HostParticipantTile(
-                              participant: participant,
-                            );
-                          }
-                          return _RateableTile(
-                            participant: participant,
-                            isThumbsUp: _thumbsUp[participant.userId] ?? false,
-                            onToggle: () => setState(() {
-                              _thumbsUp[participant.userId] =
-                                  !(_thumbsUp[participant.userId] ?? false);
-                            }),
-                          );
-                        },
-                      ),
-              ),
-              const SizedBox(height: 16),
-
-              // Submit button
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.accent,
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: () {
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Ratings submitted!'),
-                      backgroundColor: AppColors.success,
-                    ),
-                  );
-                },
-                child: const Text('Submit Rating'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RateableTile extends StatelessWidget {
-  final Participant participant;
-  final bool isThumbsUp;
-  final VoidCallback onToggle;
-
-  const _RateableTile({
-    required this.participant,
-    required this.isThumbsUp,
-    required this.onToggle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: _ParticipantAvatar(
-        username: participant.username,
-        photoUrl: participant.profilePhotoUrl,
-        radius: 20,
-      ),
-      title: Text(
-        participant.username,
-        style: const TextStyle(
-          color: AppColors.text,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      trailing: IconButton(
-        icon: Icon(
-          isThumbsUp ? Icons.thumb_up : Icons.thumb_up_outlined,
-          color: isThumbsUp ? AppColors.accent : AppColors.hint,
-        ),
-        onPressed: onToggle,
-      ),
-    );
-  }
-}
-
-class _HostParticipantTile extends StatelessWidget {
-  final Participant participant;
-
-  const _HostParticipantTile({required this.participant});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      leading: _ParticipantAvatar(
-        username: participant.username,
-        photoUrl: participant.profilePhotoUrl,
-        radius: 20,
-      ),
-      title: Text(
-        participant.username,
-        style: const TextStyle(
-          color: AppColors.text,
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-      trailing: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-        decoration: BoxDecoration(
-          color: AppColors.accent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: const Text(
-          'Host',
-          style: TextStyle(
-            color: Colors.white,
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-          ),
-        ),
       ),
     );
   }
