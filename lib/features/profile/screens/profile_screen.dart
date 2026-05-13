@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:go_router/go_router.dart';
@@ -42,17 +43,14 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     try {
       final userService = ref.read(userServiceProvider);
       final url = await userService.uploadAvatar(userId: user.id, file: file);
-      await userService.updateProfile(
-        userId: user.id,
-        profilePhotoUrl: url,
-      );
+      await userService.updateProfile(userId: user.id, profilePhotoUrl: url);
       if (mounted) setState(() => _localAvatar = null);
     } catch (e) {
       if (mounted) {
         setState(() => _localAvatar = null);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Avatar upload failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Avatar upload failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
@@ -74,17 +72,12 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
     final tt = Theme.of(context).textTheme;
 
     return userAsync.when(
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
-      error: (e, _) => Scaffold(
-        body: Center(child: Text('Error: $e')),
-      ),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      error: (e, _) => Scaffold(body: Center(child: Text('Error: $e'))),
       data: (user) {
         if (user == null) {
-          return const Scaffold(
-            body: Center(child: Text('Not logged in')),
-          );
+          return const Scaffold(body: Center(child: Text('Not logged in')));
         }
         return _buildScaffold(context, tt, user);
       },
@@ -94,17 +87,17 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
   Widget _buildScaffold(BuildContext context, TextTheme tt, AppUser user) {
     return Scaffold(
       backgroundColor: AppColors.background,
-appBar: AppBar(
-  automaticallyImplyLeading: false,
-  titleSpacing: 20,
-  title: const Text('Profile'),
-  actions: [
-    IconButton(
-      icon: const Icon(Icons.settings_outlined),
-      onPressed: () => context.push('/settings'),
-    ),
-  ],
-),
+      appBar: AppBar(
+        automaticallyImplyLeading: false,
+        titleSpacing: 20,
+        title: const Text('Profile'),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.settings_outlined),
+            onPressed: () => context.push('/settings'),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
         children: [
@@ -120,16 +113,18 @@ appBar: AppBar(
                     children: [
                       CircleAvatar(
                         radius: 40,
-                        backgroundColor:
-                            AppColors.accent.withValues(alpha: 0.15),
+                        backgroundColor: AppColors.accent.withValues(
+                          alpha: 0.15,
+                        ),
                         backgroundImage: _localAvatar != null
                             ? FileImage(_localAvatar!)
                             : (user.profilePhotoUrl != null &&
-                                    user.profilePhotoUrl!.isNotEmpty
-                                ? NetworkImage(user.profilePhotoUrl!)
-                                    as ImageProvider
-                                : null),
-                        child: (_localAvatar == null &&
+                                      user.profilePhotoUrl!.isNotEmpty
+                                  ? NetworkImage(user.profilePhotoUrl!)
+                                        as ImageProvider
+                                  : null),
+                        child:
+                            (_localAvatar == null &&
                                 (user.profilePhotoUrl == null ||
                                     user.profilePhotoUrl!.isEmpty))
                             ? Text(
@@ -165,8 +160,11 @@ appBar: AppBar(
                             color: AppColors.accent,
                             shape: BoxShape.circle,
                           ),
-                          child: const Icon(Icons.camera_alt,
-                              size: 14, color: Colors.white),
+                          child: const Icon(
+                            Icons.camera_alt,
+                            size: 14,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
                     ],
@@ -175,15 +173,17 @@ appBar: AppBar(
                 const SizedBox(height: 12),
                 Text(user.username, style: tt.displayMedium),
                 const SizedBox(height: 2),
-                Text(user.email,
-                    style:
-                        tt.bodyMedium?.copyWith(color: AppColors.hint)),
+                Text(
+                  user.email,
+                  style: tt.bodyMedium?.copyWith(color: AppColors.hint),
+                ),
                 if (user.bio.isNotEmpty) ...[
                   const SizedBox(height: 8),
-                  Text(user.bio,
-                      style: tt.bodyMedium
-                          ?.copyWith(color: AppColors.hint),
-                      textAlign: TextAlign.center),
+                  Text(
+                    user.bio,
+                    style: tt.bodyMedium?.copyWith(color: AppColors.hint),
+                    textAlign: TextAlign.center,
+                  ),
                 ],
                 const SizedBox(height: 8),
                 if (user.faculty.isNotEmpty)
@@ -193,8 +193,7 @@ appBar: AppBar(
                       'Year ${user.studentYear}',
                       user.academicLevel.displayName,
                     ].join(' · '),
-                    style: tt.labelLarge
-                        ?.copyWith(color: AppColors.hint),
+                    style: tt.labelLarge?.copyWith(color: AppColors.hint),
                   ),
               ],
             ),
@@ -202,8 +201,7 @@ appBar: AppBar(
           const SizedBox(height: 20),
           // Stats row
           Container(
-            padding: const EdgeInsets.symmetric(
-                vertical: 16, horizontal: 24),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(12),
@@ -213,15 +211,16 @@ appBar: AppBar(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
                 _StatItem(
-                    label: 'Sessions',
-                    value: user.sessionsCount.toString()),
-                Container(
-                    width: 1,
-                    height: 36,
-                    color: AppColors.border),
+                  label: 'Sessions',
+                  value: user.sessionsCount.toString(),
+                ),
+                Container(width: 1, height: 36, color: AppColors.border),
                 _StatItem(
-                    label: 'Friends',
-                    value: user.friendsCount.toString()),
+                  label: 'Friends',
+                  value: user.friendsCount.toString(),
+                ),
+                Container(width: 1, height: 36, color: AppColors.border),
+                _RatingStatItem(sessionCount: user.sessionsCount),
               ],
             ),
           ),
@@ -252,13 +251,11 @@ class _StatItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final tt = Theme.of(context).textTheme;
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(value,
-            style: tt.displayMedium
-                ?.copyWith(color: AppColors.accent)),
+        Text(value, style: tt.displayMedium?.copyWith(color: AppColors.accent)),
         const SizedBox(height: 2),
-        Text(label,
-            style: tt.bodyMedium?.copyWith(color: AppColors.hint)),
+        Text(label, style: tt.bodyMedium?.copyWith(color: AppColors.hint)),
       ],
     );
   }
@@ -282,10 +279,9 @@ class _SessionHistoryList extends ConsumerWidget {
         child: Center(
           child: Text(
             'Error: $e',
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(color: AppColors.error),
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: AppColors.error),
           ),
         ),
       ),
@@ -297,10 +293,12 @@ class _SessionHistoryList extends ConsumerWidget {
         // is consistent with what users see elsewhere.
         return Column(
           children: sessions
-              .map((s) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: SessionCard(session: s),
-                  ))
+              .map(
+                (s) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: SessionCard(session: s),
+                ),
+              )
               .toList(),
         );
       },
@@ -318,15 +316,17 @@ class _EmptyHistory extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 32),
         child: Column(
           children: [
-            const Icon(Icons.history_outlined,
-                size: 48, color: AppColors.disabled),
+            const Icon(
+              Icons.history_outlined,
+              size: 48,
+              color: AppColors.disabled,
+            ),
             const SizedBox(height: 12),
             Text(
               'No sessions yet',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: AppColors.hint),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: AppColors.hint),
             ),
           ],
         ),
@@ -335,6 +335,46 @@ class _EmptyHistory extends StatelessWidget {
   }
 }
 
+class _RatingStatItem extends StatelessWidget {
+  final int sessionCount;
+  const _RatingStatItem({required this.sessionCount});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.thumb_up_rounded,
+              color: Color(0xFF894DEF),
+              size: 20,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'N/A',
+              style: GoogleFonts.poppins(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF894DEF),
+              ),
+            ),
+          ],
+        ),
+        Text(
+          'from $sessionCount sessions',
+          style: GoogleFonts.poppins(
+            fontSize: 10,
+            fontWeight: FontWeight.w500,
+            color: AppColors.hint,
+          ),
+        ),
+      ],
+    );
+  }
+}
 
 // ── Edit Profile Bottom Sheet ─────────────────────────────────────────────────
 
@@ -387,7 +427,9 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
     if (_nameCtrl.text.trim().isEmpty || _saving) return;
     setState(() => _saving = true);
     try {
-      await ref.read(userServiceProvider).updateProfile(
+      await ref
+          .read(userServiceProvider)
+          .updateProfile(
             userId: widget.user.id,
             username: _nameCtrl.text.trim(),
             faculty: _facultyCtrl.text.trim(),
@@ -398,9 +440,9 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Save failed: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save failed: $e')));
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -413,13 +455,13 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
     final maxYear = AppUser.maxYearFor(_academicLevel);
 
     return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
       child: Container(
         decoration: const BoxDecoration(
           color: AppColors.surface,
-          borderRadius:
-              BorderRadius.vertical(top: Radius.circular(20)),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
         ),
         child: SafeArea(
           child: SingleChildScrollView(
@@ -444,36 +486,41 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
                 _Field(label: 'Name', ctrl: _nameCtrl, hint: 'Your name'),
                 const SizedBox(height: 14),
                 _Field(
-                    label: 'Faculty',
-                    ctrl: _facultyCtrl,
-                    hint: 'e.g. Engineering'),
+                  label: 'Faculty',
+                  ctrl: _facultyCtrl,
+                  hint: 'e.g. Engineering',
+                ),
                 const SizedBox(height: 14),
-                Text('Academic Level',
-                    style: tt.labelLarge
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  'Academic Level',
+                  style: tt.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<AcademicLevel>(
                   initialValue: _academicLevel,
                   items: AcademicLevel.values
-                      .map((l) => DropdownMenuItem(
-                            value: l,
-                            child: Text(l.displayName),
-                          ))
+                      .map(
+                        (l) => DropdownMenuItem(
+                          value: l,
+                          child: Text(l.displayName),
+                        ),
+                      )
                       .toList(),
                   onChanged: _onLevelChanged,
                 ),
                 const SizedBox(height: 14),
-                Text('Year',
-                    style: tt.labelLarge
-                        ?.copyWith(fontWeight: FontWeight.w600)),
+                Text(
+                  'Year',
+                  style: tt.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+                ),
                 const SizedBox(height: 6),
                 DropdownButtonFormField<int>(
                   initialValue: _studentYear,
                   items: List.generate(maxYear, (i) => i + 1)
-                      .map((y) => DropdownMenuItem(
-                            value: y,
-                            child: Text('Year $y'),
-                          ))
+                      .map(
+                        (y) =>
+                            DropdownMenuItem(value: y, child: Text('Year $y')),
+                      )
                       .toList(),
                   onChanged: (v) {
                     if (v != null) setState(() => _studentYear = v);
@@ -481,10 +528,11 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
                 ),
                 const SizedBox(height: 14),
                 _Field(
-                    label: 'Bio',
-                    ctrl: _bioCtrl,
-                    hint: 'Tell others about yourself...',
-                    maxLines: 3),
+                  label: 'Bio',
+                  ctrl: _bioCtrl,
+                  hint: 'Tell others about yourself...',
+                  maxLines: 3,
+                ),
                 const SizedBox(height: 24),
                 ElevatedButton(
                   onPressed: _saving ? null : _save,
@@ -498,8 +546,7 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
                 ),
                 const SizedBox(height: 10),
                 OutlinedButton(
-                  onPressed:
-                      _saving ? null : () => Navigator.pop(context),
+                  onPressed: _saving ? null : () => Navigator.pop(context),
                   child: const Text('Cancel'),
                 ),
               ],
@@ -529,11 +576,12 @@ class _Field extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label,
-            style: Theme.of(context)
-                .textTheme
-                .labelLarge
-                ?.copyWith(fontWeight: FontWeight.w600)),
+        Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+        ),
         const SizedBox(height: 6),
         TextField(
           controller: ctrl,
