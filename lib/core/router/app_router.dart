@@ -83,6 +83,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             ),
           ),
           GoRoute(path: '/profile', builder: (c, s) => const ProfileScreen()),
+          GoRoute(
+            path: '/user/:userId',
+            builder: (c, s) => OtherUserProfileScreen(
+              userId: s.pathParameters['userId']!,
+            ),
+          ),
           // CHANGED: day-drill-down route — stays inside ShellRoute so bottom nav shows
           GoRoute(
             path: '/calendar/day',
