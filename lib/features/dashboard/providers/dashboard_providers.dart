@@ -66,7 +66,11 @@ final hostedSessionsProvider = StreamProvider.family<List<Session>, String>((
   ref,
   userId,
 ) {
-  return ref.watch(sessionServiceProvider).watchHostedSessions(userId);
+  return ref
+      .watch(sessionServiceProvider)
+      .watchHostedSessions(userId)
+      .map((sessions) =>
+          sessions.map((s) => s.copyWith(myStatus: JoinStatus.host)).toList());
 });
 
 /// Live stream of sessions the current user is a member of (not host).
