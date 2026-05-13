@@ -39,6 +39,8 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
         titleSpacing: 20,
         title: const Text('Calendar'),
         actions: [
+          // CHANGED: removed compact visualDensity/shrinkWrap that caused "Month" to wrap;
+          // added explicit padding and softWrap:false so labels never break
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: SegmentedButton<CalendarFormat>(
@@ -56,17 +58,33 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                 side: WidgetStateProperty.all(
                   const BorderSide(color: AppColors.border),
                 ),
-                visualDensity: VisualDensity.compact,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                // CHANGED: replaced shrinkWrap+compact with explicit padding so
+                // each segment is wide enough to fit its label on one line
+                padding: WidgetStateProperty.all(
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                ),
               ),
               segments: const [
                 ButtonSegment(
                   value: CalendarFormat.month,
-                  label: Text('Month', style: TextStyle(fontSize: 12)),
+                  // CHANGED: softWrap:false + maxLines:1 prevents "Mont\nh" wrap
+                  label: Text(
+                    'Month',
+                    style: TextStyle(fontSize: 12),
+                    softWrap: false,
+                    maxLines: 1,
+                    overflow: TextOverflow.visible,
+                  ),
                 ),
                 ButtonSegment(
                   value: CalendarFormat.week,
-                  label: Text('Week', style: TextStyle(fontSize: 12)),
+                  label: Text(
+                    'Week',
+                    style: TextStyle(fontSize: 12),
+                    softWrap: false,
+                    maxLines: 1,
+                    overflow: TextOverflow.visible,
+                  ),
                 ),
               ],
               selected: {_calendarFormat},
@@ -172,25 +190,130 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             ),
           ),
           const Divider(height: 1, color: AppColors.border),
+          // CHANGED: replaced simple ListView.builder with rich day-panel
           Expanded(
             child: _selectedDay == null
                 ? const _NoDateSelected()
                 : selected.isEmpty
                 ? _NoSessionsDay(date: _selectedDay!)
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-                    itemCount: selected.length,
-                    itemBuilder: (context, i) =>
-                        SessionCard(session: selected[i]),
-                  ),
+                : _DaySessionsPanel(date: _selectedDay!, sessions: selected),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: AppColors.accent,
-        foregroundColor: Colors.white,
-        onPressed: () => context.push('/create-session', extra: _selectedDay),
-        child: const Icon(Icons.add),
+      // CHANGED: removed floatingActionButton — create action lives in panel
+    );
+  }
+}
+
+// CHANGED: new widget that renders the sorted day-session panel
+class _DaySessionsPanel extends StatelessWidget {
+  final DateTime date;
+  final List<Session> sessions;
+
+  const _DaySessionsPanel({required this.date, required this.sessions});
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    // CHANGED: sort by startTime ascending
+    final sorted = [...sessions]
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final n = sorted.length;
+    final showOverflow = n > 3;
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+      children: [
+        // CHANGED: header row — date label + optional "See all" button
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  '📅 ${DateFormat('MMMM d').format(date)} · $n sessions',
+                  style: tt.bodyMedium,
+                ),
+              ),
+              if (showOverflow)
+                TextButton(
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppColors.accent,
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () =>
+                      context.push('/calendar/day', extra: (date, sorted)),
+                  child: const Text('See all →'),
+                ),
+            ],
+          ),
+        ),
+        // CHANGED: "Create session on [Date]" action row
+        _CreateSessionRow(date: date),
+        const SizedBox(height: 12),
+        // CHANGED: top 3 session cards
+        ...sorted.take(3).map((s) => SessionCard(session: s)),
+        // CHANGED: overflow pill shown only when n > 3
+        if (showOverflow)
+          GestureDetector(
+            onTap: () => context.push('/calendar/day', extra: (date, sorted)),
+            child: Container(
+              margin: const EdgeInsets.only(top: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F5F5),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                '＋ ${n - 3} more sessions — see all',
+                style: tt.labelLarge?.copyWith(color: const Color(0xFF5186CD)),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// CHANGED: shared "Create session on [Date]" action row widget
+class _CreateSessionRow extends StatelessWidget {
+  final DateTime date;
+
+  const _CreateSessionRow({required this.date});
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+
+    return GestureDetector(
+      onTap: () => context.push('/create-session', extra: date),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.secondary,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0xFF5186CD),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Icon(Icons.add, color: Colors.white, size: 16),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Create session on ${DateFormat('MMMM d').format(date)}',
+              style: tt.bodyMedium,
+            ),
+          ],
+        ),
       ),
     );
   }

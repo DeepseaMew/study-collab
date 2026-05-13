@@ -1,0 +1,107 @@
+// CHANGED: new screen — full day session list with create-session action row
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+
+import 'package:study_collab/core/theme/app_theme.dart';
+import 'package:study_collab/models/session.dart';
+import 'package:study_collab/features/dashboard/widgets/session_card.dart';
+
+class DaySessionsScreen extends StatelessWidget {
+  final DateTime day;
+  final List<Session> sessions;
+
+  const DaySessionsScreen({
+    super.key,
+    required this.day,
+    required this.sessions,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+
+    // CHANGED: sort by startTime ascending inside build
+    final sorted = [...sessions]
+      ..sort((a, b) => a.startTime.compareTo(b.startTime));
+    final n = sorted.length;
+
+    return Scaffold(
+      backgroundColor: AppColors.background,
+      appBar: AppBar(
+        automaticallyImplyLeading: true,
+        toolbarHeight: 64,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Calendar',
+              style: tt.labelSmall?.copyWith(color: AppColors.hint),
+            ),
+            Text(
+              '${DateFormat('MMMM d').format(day)} — All Sessions',
+              style: tt.titleLarge,
+            ),
+          ],
+        ),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+        children: [
+          // CHANGED: create-session action row
+          _CreateSessionRow(day: day),
+          const SizedBox(height: 4),
+          // CHANGED: session count label
+          Text(
+            '$n sessions · sorted by start time',
+            style: tt.labelSmall?.copyWith(color: AppColors.hint),
+          ),
+          const SizedBox(height: 12),
+          // CHANGED: full list of session cards
+          ...sorted.map((s) => SessionCard(session: s)),
+        ],
+      ),
+    );
+  }
+}
+
+// CHANGED: local create-session action row (same visual as calendar_screen)
+class _CreateSessionRow extends StatelessWidget {
+  final DateTime day;
+
+  const _CreateSessionRow({required this.day});
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+
+    return GestureDetector(
+      onTap: () => context.push('/create-session', extra: day),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppColors.secondary,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: const Color(0xFF5186CD),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: const Icon(Icons.add, color: Colors.white, size: 16),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              'Create session on ${DateFormat('MMMM d').format(day)}',
+              style: tt.bodyMedium,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
