@@ -18,9 +18,8 @@ class OtherUserProfileScreen extends ConsumerWidget {
     final currentUserAsync = ref.watch(currentUserProvider);
 
     return userAsync.when(
-      loading: () => const Scaffold(
-        body: Center(child: CircularProgressIndicator()),
-      ),
+      loading: () =>
+          const Scaffold(body: Center(child: CircularProgressIndicator())),
       error: (e, _) => Scaffold(
         appBar: AppBar(),
         body: Center(child: Text('Failed to load profile: $e')),
@@ -44,8 +43,9 @@ class OtherUserProfileScreen extends ConsumerWidget {
     AppUser user,
     AppUser? currentUser,
   ) {
-    final initial =
-        user.username.isNotEmpty ? user.username[0].toUpperCase() : '?';
+    final initial = user.username.isNotEmpty
+        ? user.username[0].toUpperCase()
+        : '?';
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -59,13 +59,14 @@ class OtherUserProfileScreen extends ConsumerWidget {
               children: [
                 CircleAvatar(
                   radius: 40,
-                  backgroundColor:
-                      AppColors.accent.withValues(alpha: 0.15),
-                  backgroundImage: (user.profilePhotoUrl != null &&
+                  backgroundColor: AppColors.accent.withValues(alpha: 0.15),
+                  backgroundImage:
+                      (user.profilePhotoUrl != null &&
                           user.profilePhotoUrl!.isNotEmpty)
                       ? NetworkImage(user.profilePhotoUrl!)
                       : null,
-                  child: (user.profilePhotoUrl == null ||
+                  child:
+                      (user.profilePhotoUrl == null ||
                           user.profilePhotoUrl!.isEmpty)
                       ? Text(
                           initial,
@@ -80,9 +81,10 @@ class OtherUserProfileScreen extends ConsumerWidget {
                 const SizedBox(height: 12),
                 Text(user.username, style: tt.displayMedium),
                 const SizedBox(height: 2),
-                Text(user.email,
-                    style: tt.bodyMedium
-                        ?.copyWith(color: AppColors.hint)),
+                Text(
+                  user.email,
+                  style: tt.bodyMedium?.copyWith(color: AppColors.hint),
+                ),
                 if (user.bio.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   Text(
@@ -99,18 +101,16 @@ class OtherUserProfileScreen extends ConsumerWidget {
                       'Year ${user.studentYear}',
                       user.academicLevel.displayName,
                     ].join(' · '),
-                    style: tt.labelLarge
-                        ?.copyWith(color: AppColors.hint),
+                    style: tt.labelLarge?.copyWith(color: AppColors.hint),
                   ),
                 ],
               ],
             ),
           ),
           const SizedBox(height: 20),
-          // Stats row — 3 columns: Sessions / Friends / Attended
+          // Stats row — 3 columns: Sessions / Friends / Rating
           Container(
-            padding: const EdgeInsets.symmetric(
-                vertical: 16, horizontal: 24),
+            padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
             decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(12),
@@ -129,8 +129,7 @@ class OtherUserProfileScreen extends ConsumerWidget {
                   value: user.friendsCount.toString(),
                 ),
                 Container(width: 1, height: 36, color: AppColors.border),
-                // TODO: wire to participation_service when ready
-                const _StatItem(label: 'Attended', value: '0'),
+                _RatingStatItem(sessionCount: user.sessionsCount),
               ],
             ),
           ),
@@ -162,10 +161,12 @@ class _FriendActions extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final statusAsync = ref.watch(_friendshipStatusProvider((
-      currentUserId: currentUser.id,
-      otherUserId: otherUser.id,
-    )));
+    final statusAsync = ref.watch(
+      _friendshipStatusProvider((
+        currentUserId: currentUser.id,
+        otherUserId: otherUser.id,
+      )),
+    );
 
     return Row(
       children: [
@@ -175,10 +176,8 @@ class _FriendActions extends ConsumerWidget {
               height: 48,
               child: Center(child: CircularProgressIndicator()),
             ),
-            error: (e, _) => OutlinedButton(
-              onPressed: null,
-              child: Text('Error: $e'),
-            ),
+            error: (e, _) =>
+                OutlinedButton(onPressed: null, child: Text('Error: $e')),
             data: (status) => _FriendButton(
               status: status,
               currentUser: currentUser,
@@ -196,7 +195,8 @@ class _FriendActions extends ConsumerWidget {
                     ? () {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                              content: Text('Messaging coming soon')),
+                            content: Text('Messaging coming soon'),
+                          ),
                         );
                       }
                     : null,
@@ -204,10 +204,8 @@ class _FriendActions extends ConsumerWidget {
                 label: const Text('Message'),
               );
             },
-            orElse: () => const ElevatedButton(
-              onPressed: null,
-              child: Text('Message'),
-            ),
+            orElse: () =>
+                const ElevatedButton(onPressed: null, child: Text('Message')),
           ),
         ),
       ],
@@ -242,16 +240,18 @@ class _FriendButtonState extends ConsumerState<_FriendButton> {
     try {
       await action();
       if (successMsg != null && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(successMsg),
-          backgroundColor: AppColors.success,
-        ));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(successMsg),
+            backgroundColor: AppColors.success,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('$e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('$e')));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -264,7 +264,8 @@ class _FriendButtonState extends ConsumerState<_FriendButton> {
       builder: (_) => AlertDialog(
         title: const Text('Remove friend?'),
         content: Text(
-            '${widget.otherUser.username} will no longer be able to message you.'),
+          '${widget.otherUser.username} will no longer be able to message you.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -295,13 +296,13 @@ class _FriendButtonState extends ConsumerState<_FriendButton> {
           onPressed: _busy
               ? null
               : () => _confirmAndUnfriend(
-                    () => _runAction(
-                      () => svc.unfriend(
-                        currentUserId: me.id,
-                        otherUserId: them.id,
-                      ),
+                  () => _runAction(
+                    () => svc.unfriend(
+                      currentUserId: me.id,
+                      otherUserId: them.id,
                     ),
                   ),
+                ),
           icon: const Icon(Icons.people, size: 18),
           label: const Text('Friends'),
         );
@@ -311,11 +312,8 @@ class _FriendButtonState extends ConsumerState<_FriendButton> {
           onPressed: _busy
               ? null
               : () => _runAction(
-                    () => svc.cancelRequest(
-                      fromUserId: me.id,
-                      toUserId: them.id,
-                    ),
-                  ),
+                  () => svc.cancelRequest(fromUserId: me.id, toUserId: them.id),
+                ),
           icon: const Icon(Icons.hourglass_empty_outlined, size: 18),
           label: const Text('Request Sent'),
         );
@@ -325,12 +323,9 @@ class _FriendButtonState extends ConsumerState<_FriendButton> {
           onPressed: _busy
               ? null
               : () => _runAction(
-                    () => svc.acceptRequest(
-                      currentUser: me,
-                      fromUser: them,
-                    ),
-                    successMsg: 'You are now friends',
-                  ),
+                  () => svc.acceptRequest(currentUser: me, fromUser: them),
+                  successMsg: 'You are now friends',
+                ),
           icon: const Icon(Icons.check, size: 18),
           label: const Text('Accept Request'),
         );
@@ -340,9 +335,9 @@ class _FriendButtonState extends ConsumerState<_FriendButton> {
           onPressed: _busy
               ? null
               : () => _runAction(
-                    () => svc.sendRequest(fromUser: me, toUser: them),
-                    successMsg: 'Friend request sent',
-                  ),
+                  () => svc.sendRequest(fromUser: me, toUser: them),
+                  successMsg: 'Friend request sent',
+                ),
           icon: const Icon(Icons.person_add_outlined, size: 18),
           label: const Text('Add Friend'),
         );
@@ -362,10 +357,44 @@ class _StatItem extends StatelessWidget {
     final tt = Theme.of(context).textTheme;
     return Column(
       children: [
-        Text(value,
-            style: tt.displayMedium?.copyWith(color: AppColors.accent)),
+        Text(value, style: tt.displayMedium?.copyWith(color: AppColors.accent)),
         const SizedBox(height: 2),
         Text(label, style: tt.bodyMedium?.copyWith(color: AppColors.hint)),
+      ],
+    );
+  }
+}
+
+class _RatingStatItem extends StatelessWidget {
+  final int sessionCount;
+  const _RatingStatItem({required this.sessionCount});
+
+  @override
+  Widget build(BuildContext context) {
+    final tt = Theme.of(context).textTheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.thumb_up_rounded,
+              size: 18,
+              color: AppColors.accent,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              'N/A',
+              style: tt.displayMedium?.copyWith(color: AppColors.accent),
+            ),
+          ],
+        ),
+        const SizedBox(height: 2),
+        Text(
+          'from $sessionCount sessions',
+          style: tt.bodyMedium?.copyWith(color: AppColors.hint),
+        ),
       ],
     );
   }
@@ -382,11 +411,16 @@ class _NoPublicSessions extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 32),
         child: Column(
           children: [
-            const Icon(Icons.event_busy_outlined,
-                size: 48, color: AppColors.disabled),
+            const Icon(
+              Icons.event_busy_outlined,
+              size: 48,
+              color: AppColors.disabled,
+            ),
             const SizedBox(height: 12),
-            Text('No public sessions',
-                style: tt.bodyMedium?.copyWith(color: AppColors.hint)),
+            Text(
+              'No public sessions',
+              style: tt.bodyMedium?.copyWith(color: AppColors.hint),
+            ),
           ],
         ),
       ),
@@ -397,16 +431,23 @@ class _NoPublicSessions extends StatelessWidget {
 // ── Local providers ───────────────────────────────────────────────────────────
 
 /// Streams another user's profile from Firestore, keyed by their userId.
-final _otherUserProvider =
-    StreamProvider.family<AppUser?, String>((ref, userId) {
+final _otherUserProvider = StreamProvider.family<AppUser?, String>((
+  ref,
+  userId,
+) {
   return ref.watch(userServiceProvider).watchUser(userId);
 });
 
 /// Streams the friendship status between current user and other user.
-final _friendshipStatusProvider = StreamProvider.family<FriendshipStatus,
-    ({String currentUserId, String otherUserId})>((ref, ids) {
-  return ref.watch(friendServiceProvider).watchFriendshipStatus(
-        currentUserId: ids.currentUserId,
-        otherUserId: ids.otherUserId,
-      );
-});
+final _friendshipStatusProvider =
+    StreamProvider.family<
+      FriendshipStatus,
+      ({String currentUserId, String otherUserId})
+    >((ref, ids) {
+      return ref
+          .watch(friendServiceProvider)
+          .watchFriendshipStatus(
+            currentUserId: ids.currentUserId,
+            otherUserId: ids.otherUserId,
+          );
+    });
