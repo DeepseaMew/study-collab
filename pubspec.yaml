@@ -38,6 +38,8 @@ dependencies:
   badges: ^3.2.0
   intl: ^0.20.2
   table_calendar: ^3.2.0
+  # CHANGED: added for recent-search persistence in search bottom sheet
+  shared_preferences: ^2.3.2
 
 dev_dependencies:
   flutter_test:
