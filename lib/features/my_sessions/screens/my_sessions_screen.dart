@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'package:study_collab/core/theme/app_theme.dart';
 import 'package:study_collab/features/auth/providers/auth_providers.dart';
+// CHANGED: myPendingSessionsProvider for Upcoming tab
 import 'package:study_collab/features/dashboard/providers/dashboard_providers.dart';
 import 'package:study_collab/features/dashboard/widgets/search_bottom_sheet.dart';
 import 'package:study_collab/features/dashboard/widgets/session_card.dart';
@@ -107,23 +108,38 @@ class _MySessionsScreenState extends ConsumerState<MySessionsScreen>
     // Watch both providers once — split memberships in-memory.
     final membershipsAsync = ref.watch(myMembershipsProvider(me.id));
     final hostedAsync = ref.watch(hostedSessionsProvider(me.id));
+    // CHANGED: also watch pending join requests for Upcoming tab
+    final pendingAsync = ref.watch(myPendingSessionsProvider(me.id));
 
     final memberships = membershipsAsync.asData?.value ?? [];
     final hosted = hostedAsync.asData?.value ?? [];
+    final firestorePending = pendingAsync.asData?.value ?? [];
+    final localPending = ref.watch(localPendingSessionsProvider);
+    // Local (optimistic) entries override Firestore entries on the same ID so
+    // the Upcoming tab populates instantly after a join request.
+    final pendingById = <String, Session>{
+      for (final s in firestorePending) s.id: s,
+      for (final s in localPending) s.id: s,
+    };
+    final pending = pendingById.values.toList();
 
     final now = DateTime.now();
-    final upcoming = _applyFilters(
-      memberships.where((s) => s.endTime.isAfter(now)).toList(),
-    );
+    // CHANGED: pending sessions appear first, then upcoming joined sessions
+    final upcoming = _applyFilters([
+      ...pending,
+      ...memberships.where((s) => s.endTime.isAfter(now)),
+    ]);
     final completed = _applyFilters(
       memberships.where((s) => !s.endTime.isAfter(now)).toList(),
     );
     final mine = _applyFilters(hosted);
 
-    // Build subject list from present subjects across both streams.
+    // Build subject list from present subjects across all streams.
     final subjects = {
       ...memberships.map((s) => s.subject),
       ...hosted.map((s) => s.subject),
+      // CHANGED: include pending session subjects in filter chips
+      ...pending.map((s) => s.subject),
     }.toList()..sort((a, b) => a.displayName.compareTo(b.displayName));
 
     return Scaffold(
@@ -392,7 +408,8 @@ class _SessionList extends StatelessWidget {
       itemCount: sessions.length,
       itemBuilder: (ctx, i) {
         final session = sessions[i];
-        if (onCardTap != null) {
+        // CHANGED: pending cards stay interactive so Cancel button receives taps
+        if (onCardTap != null && session.myStatus != JoinStatus.pending) {
           return GestureDetector(
             onTap: () => onCardTap!(session),
             child: AbsorbPointer(child: SessionCard(session: session)),

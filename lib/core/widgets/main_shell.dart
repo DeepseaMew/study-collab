@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/app_theme.dart';
+// CHANGED: pending count for Sessions badge
+import '../../features/auth/providers/auth_providers.dart';
+import '../../features/dashboard/providers/dashboard_providers.dart';
 
 const _kSelected = Color(0xFF5186CD);
 const _kUnselected = AppColors.hint;
@@ -26,6 +29,16 @@ class MainShell extends ConsumerWidget {
     // TODO: wire to chat_service.watchUnreadCount() when chat_service exists.
     // Hardcoded to 0 during the session-feature work stream.
     const msgUnread = 0;
+
+    // CHANGED: amber badge on Sessions when the user has pending join requests
+    final me = ref.watch(currentUserProvider).asData?.value;
+    final pendingCount = me != null
+        ? ref
+                .watch(pendingSessionsCountProvider(me.id))
+                .asData
+                ?.value ??
+            0
+        : 0;
 
     return Scaffold(
       body: child,
@@ -64,11 +77,14 @@ class MainShell extends ConsumerWidget {
               onTap: () => context.go('/calendar'),
             ),
             const SizedBox(width: 64), // FAB gap
+            // CHANGED: amber badge when pending sessions exist
             _NavItem(
               icon: Icons.library_books_outlined,
               activeIcon: Icons.library_books_rounded,
               label: 'Sessions',
               active: sel == 2,
+              badge: pendingCount > 0 ? pendingCount : null,
+              badgeColor: const Color(0xFFD69E2E),
               onTap: () => context.go('/my-sessions'),
             ),
             _NavItem(
@@ -92,6 +108,8 @@ class _NavItem extends StatelessWidget {
   final String label;
   final bool active;
   final int? badge;
+  // CHANGED: configurable badge colour (default red for messages, amber for sessions)
+  final Color badgeColor;
   final VoidCallback onTap;
 
   const _NavItem({
@@ -101,6 +119,7 @@ class _NavItem extends StatelessWidget {
     required this.active,
     required this.onTap,
     this.badge,
+    this.badgeColor = AppColors.error,
   });
 
   @override
@@ -137,9 +156,10 @@ class _NavItem extends StatelessWidget {
                         style: const TextStyle(
                             color: Colors.white, fontSize: 8),
                       ),
-                      badgeStyle: const badges.BadgeStyle(
-                        badgeColor: AppColors.error,
-                        padding: EdgeInsets.all(3),
+                      // CHANGED: use instance badgeColor instead of hardcoded error red
+                      badgeStyle: badges.BadgeStyle(
+                        badgeColor: badgeColor,
+                        padding: const EdgeInsets.all(3),
                       ),
                       position: badges.BadgePosition.topEnd(
                           top: -6, end: -6),

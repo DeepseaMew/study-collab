@@ -69,9 +69,18 @@ if (asyncSessions.hasError) {
 }
     final unreadCount = ref.watch(unreadNotificationCountProvider);
     
-    // Discover feed = sessions the user has not joined / hosted yet.
+    // IDs added optimistically when the user requests to join — excluded from
+    // the discover feed immediately without waiting for a stream re-enrichment.
+    final localPendingIds = {
+      for (final s in ref.watch(localPendingSessionsProvider)) s.id
+    };
+
+    // Discover feed — only sessions the user hasn't acted on yet.
+    // Pending sessions move to My Sessions → Upcoming instead.
     final discoverSessions = allSessions
-        .where((s) => s.myStatus == JoinStatus.notJoined)
+        .where((s) =>
+            s.myStatus == JoinStatus.notJoined &&
+            !localPendingIds.contains(s.id))
         .toList();
 
     return Scaffold(

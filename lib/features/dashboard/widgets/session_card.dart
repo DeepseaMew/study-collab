@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../../models/enums.dart';
 import '../../../models/session.dart';
+// CHANGED: providers for join / cancel actions and current user
+import '../../auth/providers/auth_providers.dart';
+import '../providers/dashboard_providers.dart';
 import 'join_password_dialog.dart';
 import 'join_request_dialog.dart';
 
@@ -30,10 +34,18 @@ class SessionCard extends StatelessWidget {
         children: [
           Container(
             margin: const EdgeInsets.only(bottom: 12),
-            decoration: BoxDecoration(
+            // CHANGED: amber left border when pending
+          decoration: BoxDecoration(
               color: AppColors.surface,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.border),
+              border: session.myStatus == JoinStatus.pending
+                  ? const Border(
+                      left: BorderSide(color: Color(0xFFD69E2E), width: 3),
+                      right: BorderSide(color: AppColors.border),
+                      top: BorderSide(color: AppColors.border),
+                      bottom: BorderSide(color: AppColors.border),
+                    )
+                  : Border.all(color: AppColors.border),
             ),
             padding: const EdgeInsets.all(16),
             child: Column(
@@ -50,7 +62,14 @@ class SessionCard extends StatelessWidget {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Padding(
-                        padding: EdgeInsets.only(right: isPrivate ? 20 : 0),
+                        // CHANGED: extra right padding keeps title clear of pending chip
+                        padding: EdgeInsets.only(
+                          right: session.myStatus == JoinStatus.pending
+                              ? 80
+                              : isPrivate
+                                  ? 20
+                                  : 0,
+                        ),
                         child: Text(
                           session.title,
                           style: tt.titleLarge,
@@ -161,6 +180,27 @@ class SessionCard extends StatelessWidget {
                 ),
               ),
             ),
+          // CHANGED: pending chip — shown instead of lock (public sessions only)
+          if (session.myStatus == JoinStatus.pending)
+            Positioned(
+              top: 10,
+              right: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFAEEDA),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: const Text(
+                  '⏳ Pending',
+                  style: TextStyle(
+                    color: Color(0xFF854F0B),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -251,79 +291,196 @@ class _JoinArea extends StatelessWidget {
       // CHANGED: replaced _StatusChip with _HostBadge for the host state
       case JoinStatus.host:
         return const _HostBadge();
+      // CHANGED: replaced static chip with interactive cancel + pending indicator
       case JoinStatus.pending:
-        return const _StatusChip(
-          label: 'Pending...',
-          backgroundColor: AppColors.warning,
-          textColor: Colors.white,
-        );
+        return _PendingButtons(session: session);
       case JoinStatus.notJoined:
         return _NotJoinedButton(session: session, joinColor: joinColor);
     }
   }
 }
 
-class _NotJoinedButton extends StatelessWidget {
+// CHANGED: converted to ConsumerStatefulWidget to wire sendJoinRequest
+class _NotJoinedButton extends ConsumerStatefulWidget {
   final Session session;
   final Color joinColor;
   const _NotJoinedButton({required this.session, required this.joinColor});
 
   @override
+  ConsumerState<_NotJoinedButton> createState() => _NotJoinedButtonState();
+}
+
+class _NotJoinedButtonState extends ConsumerState<_NotJoinedButton> {
+  bool _busy = false;
+
+  Future<void> _sendRequest() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => JoinRequestDialog(session: widget.session),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final me = ref.read(currentUserProvider).asData?.value;
+    if (me == null) return;
+
+    setState(() => _busy = true);
+    try {
+      await ref.read(sessionJoinActionsProvider).sendJoinRequest(
+            sessionId: widget.session.id,
+            userId: me.id,
+            username: me.username,
+            profilePhotoUrl: me.profilePhotoUrl,
+          );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Request sent! Waiting for host approval'),
+          backgroundColor: Color(0xFF38A169),
+          duration: Duration(seconds: 3),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to send request: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    switch (session.visibility) {
-      // Public sessions now always require host approval to join.
+    switch (widget.session.visibility) {
       case SessionVisibility.public:
         return OutlinedButton(
           style: OutlinedButton.styleFrom(
-            side: BorderSide(color: joinColor),
-            foregroundColor: joinColor,
+            side: BorderSide(color: widget.joinColor),
+            foregroundColor: widget.joinColor,
             minimumSize: const Size(120, 40),
           ),
-          onPressed: () async {
-            final confirmed = await showDialog<bool>(
-              context: context,
-              builder: (_) => JoinRequestDialog(session: session),
-            );
-            if (confirmed == true && context.mounted) {
-              // TODO: wire to participation_service.requestJoin
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Request sent!'),
-                  backgroundColor: AppColors.success,
-                ),
-              );
-            }
-          },
-          child: const Text('Request to Join'),
+          onPressed: _busy ? null : _sendRequest,
+          child: _busy
+              ? SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: widget.joinColor,
+                  ),
+                )
+              : const Text('Request to Join'),
         );
 
-      // Private sessions are hidden from browse; if a user reaches one
-      // (via shared link), they need the password to join.
+      // Private sessions are hidden from browse; reached via shared link only.
       case SessionVisibility.private:
         return ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
-            backgroundColor: joinColor,
+            backgroundColor: widget.joinColor,
             minimumSize: const Size(140, 40),
           ),
-          onPressed: () async {
-            final password = await showDialog<String>(
-              context: context,
-              builder: (_) => JoinPasswordDialog(session: session),
-            );
-            if (password != null && context.mounted) {
-              // TODO: wire to participation_service.joinWithPassword
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Joined "${session.title}"!'),
-                  backgroundColor: AppColors.success,
-                ),
-              );
-            }
-          },
+          onPressed: _busy
+              ? null
+              : () async {
+                  final messenger = ScaffoldMessenger.of(context);
+                  final password = await showDialog<String>(
+                    context: context,
+                    builder: (_) =>
+                        JoinPasswordDialog(session: widget.session),
+                  );
+                  if (password != null && mounted) {
+                    messenger.showSnackBar(
+                      SnackBar(
+                        content: Text('Joined "${widget.session.title}"!'),
+                        backgroundColor: AppColors.success,
+                      ),
+                    );
+                  }
+                },
           icon: const Icon(Icons.lock_outline, size: 14),
           label: const Text('Join with Password'),
         );
     }
+  }
+}
+
+// CHANGED: new widget — Cancel button + disabled Pending indicator
+class _PendingButtons extends ConsumerStatefulWidget {
+  final Session session;
+  const _PendingButtons({required this.session});
+
+  @override
+  ConsumerState<_PendingButtons> createState() => _PendingButtonsState();
+}
+
+class _PendingButtonsState extends ConsumerState<_PendingButtons> {
+  bool _busy = false;
+
+  Future<void> _cancel() async {
+    final me = ref.read(currentUserProvider).asData?.value;
+    if (me == null || _busy) return;
+    setState(() => _busy = true);
+    try {
+      await ref.read(sessionJoinActionsProvider).cancelJoinRequest(
+            sessionId: widget.session.id,
+            userId: me.id,
+          );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to cancel request: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        OutlinedButton(
+          style: OutlinedButton.styleFrom(
+            side: const BorderSide(color: AppColors.error),
+            foregroundColor: AppColors.error,
+            minimumSize: const Size(80, 36),
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+          ),
+          onPressed: _busy ? null : _cancel,
+          child: _busy
+              ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.error,
+                  ),
+                )
+              : const Text('Cancel'),
+        ),
+        const SizedBox(width: 8),
+        Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: const Color(0xFFFAEEDA),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          alignment: Alignment.center,
+          child: const Text(
+            '⏳ Pending...',
+            style: TextStyle(
+              color: Color(0xFF854F0B),
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 }
 

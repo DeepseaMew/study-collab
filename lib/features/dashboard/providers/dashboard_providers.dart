@@ -125,3 +125,94 @@ final myCalendarSessionsProvider = Provider<List<Session>>((ref) {
   }
   return byId.values.toList();
 });
+
+// Join / cancel action infrastructure ────────────────────────────────────────
+
+/// Optimistic local list of sessions the user has just requested to join.
+/// Merges with [myPendingSessionsProvider] in My Sessions for immediate display.
+/// Cleared entry-by-entry when the user cancels or Firestore confirms.
+final localPendingSessionsProvider = StateProvider<List<Session>>((ref) => []);
+
+/// Thin action facade over [ParticipationService]. Handles the Firestore write
+/// and updates local optimistic state immediately — no stream restart required.
+class SessionJoinActions {
+  final ParticipationService _svc;
+  final Ref _ref;
+
+  SessionJoinActions(this._svc, this._ref);
+
+  Future<void> sendJoinRequest({
+    required String sessionId,
+    required String userId,
+    required String username,
+    String? profilePhotoUrl,
+  }) async {
+    await _svc.requestJoin(
+      sessionId: sessionId,
+      userId: userId,
+      username: username,
+      profilePhotoUrl: profilePhotoUrl,
+    );
+    final session =
+        await _ref.read(sessionServiceProvider).getSession(sessionId);
+    if (session != null) {
+      final current = _ref.read(localPendingSessionsProvider);
+      if (!current.any((s) => s.id == sessionId)) {
+        _ref.read(localPendingSessionsProvider.notifier).state = [
+          ...current,
+          session.copyWith(myStatus: JoinStatus.pending),
+        ];
+      }
+    }
+  }
+
+  Future<void> cancelJoinRequest({
+    required String sessionId,
+    required String userId,
+  }) async {
+    await _svc.cancelJoinRequest(sessionId: sessionId, userId: userId);
+    _ref.read(localPendingSessionsProvider.notifier).state = _ref
+        .read(localPendingSessionsProvider)
+        .where((s) => s.id != sessionId)
+        .toList();
+  }
+}
+
+final sessionJoinActionsProvider = Provider<SessionJoinActions>((ref) {
+  return SessionJoinActions(ref.watch(participationServiceProvider), ref);
+});
+
+// CHANGED: pending sessions for My Sessions Upcoming tab ───────────────────────
+
+/// Live stream of sessions where [userId] has a pending join request.
+/// Fetches full session data per request then marks each as pending.
+/// Sorted by requestedAt DESC (most-recent first).
+final myPendingSessionsProvider = StreamProvider.family<List<Session>, String>((
+  ref,
+  userId,
+) async* {
+  final participationSvc = ref.watch(participationServiceProvider);
+  final sessionSvc = ref.watch(sessionServiceProvider);
+
+  await for (final requests in participationSvc.watchMyPendingRequests(userId)) {
+    final sessions = <Session>[];
+    for (final req in requests) {
+      final session = await sessionSvc.getSession(req.sessionId);
+      if (session != null) {
+        sessions.add(session.copyWith(myStatus: JoinStatus.pending));
+      }
+    }
+    yield sessions;
+  }
+});
+
+/// Live count of the user's pending join requests — drives the Sessions nav badge.
+final pendingSessionsCountProvider = StreamProvider.family<int, String>((
+  ref,
+  userId,
+) {
+  return ref
+      .watch(participationServiceProvider)
+      .watchMyPendingRequests(userId)
+      .map((list) => list.length);
+});
