@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import 'package:study_collab/core/theme/app_theme.dart';
 import 'package:study_collab/features/auth/providers/auth_providers.dart';
@@ -157,6 +158,8 @@ class _MySessionsScreenState extends ConsumerState<MySessionsScreen>
                   emptyIcon: Icons.upcoming_outlined,
                   emptyTitle: 'No upcoming sessions',
                   emptyBody: 'Sessions you join will appear here',
+                  onCardTap: (s) =>
+                      context.push('/my-sessions/member/${s.id}'),
                 ),
                 _tabContent(
                   async: membershipsAsync,
@@ -164,6 +167,8 @@ class _MySessionsScreenState extends ConsumerState<MySessionsScreen>
                   emptyIcon: Icons.check_circle_outline,
                   emptyTitle: 'No completed sessions yet',
                   emptyBody: 'Completed sessions will show up here',
+                  onCardTap: (s) =>
+                      context.push('/my-sessions/member/${s.id}'),
                 ),
                 _tabContent(
                   async: hostedAsync,
@@ -171,6 +176,7 @@ class _MySessionsScreenState extends ConsumerState<MySessionsScreen>
                   emptyIcon: Icons.add_circle_outline,
                   emptyTitle: 'No sessions created',
                   emptyBody: 'Tap + to create your first session!',
+                  onCardTap: (s) => context.push('/my-sessions/${s.id}'),
                 ),
               ],
             ),
@@ -187,6 +193,7 @@ class _MySessionsScreenState extends ConsumerState<MySessionsScreen>
     required IconData emptyIcon,
     required String emptyTitle,
     required String emptyBody,
+    void Function(Session)? onCardTap,
   }) {
     if (async.isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -205,6 +212,7 @@ class _MySessionsScreenState extends ConsumerState<MySessionsScreen>
       emptyIcon: emptyIcon,
       emptyTitle: emptyTitle,
       emptyBody: emptyBody,
+      onCardTap: onCardTap,
     );
   }
 
@@ -337,12 +345,14 @@ class _SessionList extends StatelessWidget {
   final IconData emptyIcon;
   final String emptyTitle;
   final String emptyBody;
+  final void Function(Session)? onCardTap;
 
   const _SessionList({
     required this.sessions,
     required this.emptyIcon,
     required this.emptyTitle,
     required this.emptyBody,
+    this.onCardTap,
   });
 
   @override
@@ -380,7 +390,16 @@ class _SessionList extends StatelessWidget {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       itemCount: sessions.length,
-      itemBuilder: (ctx, i) => SessionCard(session: sessions[i]),
+      itemBuilder: (ctx, i) {
+        final session = sessions[i];
+        if (onCardTap != null) {
+          return GestureDetector(
+            onTap: () => onCardTap!(session),
+            child: AbsorbPointer(child: SessionCard(session: session)),
+          );
+        }
+        return SessionCard(session: session);
+      },
     );
   }
 }

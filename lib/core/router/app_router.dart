@@ -21,6 +21,8 @@ import '../../features/session/screens/edit_session_screen.dart';
 import '../../features/session/screens/session_detail_screen.dart';
 import '../../features/session/screens/members_list_screen.dart';
 import '../../features/session/screens/requests_screen.dart';
+import '../../features/my_sessions/screens/host_session_detail_screen.dart';
+import '../../features/my_sessions/screens/member_session_detail_screen.dart';
 import '../widgets/main_shell.dart';
 
 /// Riverpod provider for the app router.
@@ -85,9 +87,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(path: '/profile', builder: (c, s) => const ProfileScreen()),
           GoRoute(
             path: '/user/:userId',
-            builder: (c, s) => OtherUserProfileScreen(
-              userId: s.pathParameters['userId']!,
-            ),
+            builder: (c, s) =>
+                OtherUserProfileScreen(userId: s.pathParameters['userId']!),
+          ),
+          GoRoute(
+            path: '/my-sessions/member/:id',
+            builder: (c, s) =>
+                MemberSessionDetailScreen(sessionId: s.pathParameters['id']!),
+          ),
+          GoRoute(
+            path: '/my-sessions/:id',
+            builder: (c, s) =>
+                HostSessionDetailScreen(sessionId: s.pathParameters['id']!),
           ),
           // CHANGED: day-drill-down route — stays inside ShellRoute so bottom nav shows
           GoRoute(
