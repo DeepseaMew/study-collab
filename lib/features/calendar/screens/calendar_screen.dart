@@ -250,9 +250,6 @@ class _DaySessionsPanel extends StatelessWidget {
             ],
           ),
         ),
-        // CHANGED: "Create session on [Date]" action row
-        _CreateSessionRow(date: date),
-        const SizedBox(height: 12),
         // CHANGED: top 3 session cards
         ...sorted.take(3).map((s) => SessionCard(session: s)),
         // CHANGED: overflow pill shown only when n > 3
@@ -274,47 +271,6 @@ class _DaySessionsPanel extends StatelessWidget {
             ),
           ),
       ],
-    );
-  }
-}
-
-// CHANGED: shared "Create session on [Date]" action row widget
-class _CreateSessionRow extends StatelessWidget {
-  final DateTime date;
-
-  const _CreateSessionRow({required this.date});
-
-  @override
-  Widget build(BuildContext context) {
-    final tt = Theme.of(context).textTheme;
-
-    return GestureDetector(
-      onTap: () => context.push('/create-session', extra: date),
-      child: Container(
-        decoration: BoxDecoration(
-          color: AppColors.secondary,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Row(
-          children: [
-            Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: const Color(0xFF5186CD),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: const Icon(Icons.add, color: Colors.white, size: 16),
-            ),
-            const SizedBox(width: 10),
-            Text(
-              'Create session on ${DateFormat('MMMM d').format(date)}',
-              style: tt.bodyMedium,
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
