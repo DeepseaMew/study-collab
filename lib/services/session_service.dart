@@ -542,6 +542,101 @@ class SessionService {
     }
   }
 
+  /// End a session immediately: sets status → completed and updates endTime to
+  /// now, so the ratings system can accept ratings right away — contrast with
+  /// cancelSession which sets status → cancelled and leaves endTime unchanged.
+  ///
+  /// Chunked batch (450 ops per batch) per ADR 0010:
+  ///   1. Updates session doc: status = 'completed', endTime = now,
+  ///      updatedAt = serverTimestamp().
+  ///   2. Updates all member docs: sessionStatus = 'completed',
+  ///      sessionEndTime = now.
+  ///   3. Writes AppNotification (sessionEnded) to each member (incl. host).
+  ///
+  /// Requires [hostId] == session.hostId and session.status == 'ongoing'.
+  /// Does NOT touch sessionsCount, joinRequests, members, group chat, or files.
+  Future<void> endSession({
+    required String sessionId,
+    required String hostId,
+    required String hostName,
+  }) async {
+    try {
+      final sessionRef = _firestore
+          .collection(FirestoreCollections.sessions)
+          .doc(sessionId);
+
+      final results = await Future.wait([
+        sessionRef.get(),
+        _firestore
+            .collection(FirestoreCollections.sessions)
+            .doc(sessionId)
+            .collection(FirestoreCollections.members)
+            .get(),
+      ]);
+
+      final sessionSnap = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+      if (!sessionSnap.exists) throw const DataException('Session not found');
+      final session = Session.fromFirestore(sessionSnap);
+
+      if (session.hostId != hostId) {
+        throw const DataException('Only the host can end this session');
+      }
+      if (session.status != SessionStatus.ongoing) {
+        throw const DataException('Only ongoing sessions can be ended');
+      }
+
+      final membersSnap = results[1] as QuerySnapshot<Map<String, dynamic>>;
+
+      // Shared timestamp so session doc and all member docs agree on endTime.
+      final now = Timestamp.now();
+
+      final ops = <void Function(WriteBatch)>[];
+
+      // 1. Update session doc.
+      ops.add((b) => b.update(sessionRef, {
+            'status': SessionStatus.completed.name,
+            'endTime': now,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }));
+
+      // 2. Update each member doc + 3. notification to all members (incl. host).
+      for (final memberDoc in membersSnap.docs) {
+        final memberId = memberDoc.id;
+        final memberRef = memberDoc.reference;
+
+        // 2. Denormalize completed status and updated endTime onto member doc.
+        ops.add((b) => b.update(memberRef, {
+              'sessionStatus': SessionStatus.completed.name,
+              'sessionEndTime': now,
+            }));
+
+        // 3. Notification.
+        final notifRef = _firestore
+            .collection(FirestoreCollections.users)
+            .doc(memberId)
+            .collection(FirestoreCollections.notifications)
+            .doc();
+        ops.add((b) => b.set(notifRef, {
+              'type': NotificationType.sessionEnded.name,
+              'sessionId': sessionId,
+              'sessionTitle': session.title,
+              'fromUserId': hostId,
+              'fromUsername': hostName,
+              'fromUserPhotoUrl': null,
+              'body': null,
+              'chatId': null,
+              'read': false,
+              'createdAt': FieldValue.serverTimestamp(),
+            }));
+      }
+
+      await _commitInChunks(ops);
+    } catch (e) {
+      if (e is DataException) rethrow;
+      throw DataException('Failed to end session: $e');
+    }
+  }
+
   /// Delete a session and all its subcollection documents.
   ///
   /// Atomic across chunks (per _commitInChunks semantics):
