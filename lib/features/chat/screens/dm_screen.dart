@@ -132,16 +132,14 @@ class _DmScreenState extends ConsumerState<DmScreen> {
     DmConversation? convo,
     String myUid,
   ) {
-    // Derive the other user's uid from participantIds.
-    // NOTE: Display name/avatar are not yet denormalized on the chats doc.
-    // firebase-specialist should add otherUserName + otherUserPhotoUrl fields
-    // so the header shows a real name instead of the uid.
     final otherUid =
         convo?.participantIds
             .firstWhere((id) => id != myUid, orElse: () => '')
             .toString() ??
         '';
-    final displayLabel = otherUid.isNotEmpty ? otherUid : widget.conversationId;
+    final displayLabel = convo?.otherUserName.isNotEmpty == true
+        ? convo!.otherUserName
+        : (otherUid.isNotEmpty ? otherUid : widget.conversationId);
     final initial = displayLabel.isNotEmpty
         ? displayLabel[0].toUpperCase()
         : '?';
@@ -222,14 +220,9 @@ class _DmScreenState extends ConsumerState<DmScreen> {
               data: (messages) {
                 if (messages.isEmpty) {
                   return _EmptyDm(
-                    label:
-                        convo?.participantIds
-                            .firstWhere(
-                              (id) => id != myUid,
-                              orElse: () => 'your friend',
-                            )
-                            .toString() ??
-                        'your friend',
+                    label: convo?.otherUserName.isNotEmpty == true
+                        ? convo!.otherUserName
+                        : 'your friend',
                   );
                 }
                 final items = _buildItems(messages);
