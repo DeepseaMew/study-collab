@@ -482,7 +482,6 @@ class _MembersTab extends ConsumerWidget {
         const SizedBox(height: 32),
 
         // Message group button
-        // CHANGED: End Session button removed — delete is now in the 3-dot menu
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
             backgroundColor: AppColors.accent,
@@ -498,6 +497,32 @@ class _MembersTab extends ConsumerWidget {
               const SnackBar(content: Text('Group messaging coming soon')),
             );
           },
+        ),
+        const SizedBox(height: 12),
+
+        // End session button
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.error,
+            foregroundColor: Colors.white,
+            minimumSize: const Size(double.infinity, 48),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          onPressed: () {
+            showModalBottomSheet<void>(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (_) => _EndSessionSheet(
+                session: session,
+                members: members,
+                currentUserId: currentUserId,
+              ),
+            );
+          },
+          child: const Text('End Session'),
         ),
       ],
     );
@@ -904,6 +929,340 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ── End Session Bottom Sheet ───────────────────────────────────────────────────
+
+class _EndSessionSheet extends ConsumerStatefulWidget {
+  final Session session;
+  final List<Participant> members;
+  final String currentUserId;
+
+  const _EndSessionSheet({
+    required this.session,
+    required this.members,
+    required this.currentUserId,
+  });
+
+  @override
+  ConsumerState<_EndSessionSheet> createState() => _EndSessionSheetState();
+}
+
+class _EndSessionSheetState extends ConsumerState<_EndSessionSheet> {
+  final Map<String, bool> _thumbsUp = {};
+  String _searchQuery = '';
+
+  @override
+  Widget build(BuildContext context) {
+    // Host first, then remaining members
+    final sorted = [
+      ...widget.members.where((m) => m.userId == widget.session.hostId),
+      ...widget.members.where((m) => m.userId != widget.session.hostId),
+    ];
+    final filtered = _searchQuery.isEmpty
+        ? sorted
+        : sorted
+              .where(
+                (m) => m.username.toLowerCase().contains(
+                  _searchQuery.toLowerCase(),
+                ),
+              )
+              .toList();
+
+    final totalCount = widget.members.length;
+
+    return Container(
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      padding: EdgeInsets.only(
+        bottom: MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Drag handle
+              Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.border,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+
+              // Badge (left) + X close button (right)
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: AppColors.accent,
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: const Text(
+                      'SESSION ENDED',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: AppColors.hint),
+                    onPressed: () => Navigator.pop(context),
+                    visualDensity: VisualDensity.compact,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+
+              // Session title
+              Text(
+                widget.session.title,
+                style: const TextStyle(
+                  color: AppColors.text,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 4),
+
+              // Date + time
+              Text(
+                '${DateFormatter.relativeDate(widget.session.startTime)} · ${DateFormatter.timeRange(widget.session.startTime, widget.session.endTime)}',
+                style: const TextStyle(color: AppColors.hint, fontSize: 13),
+              ),
+              const SizedBox(height: 12),
+
+              const Divider(height: 1, color: AppColors.border),
+              const SizedBox(height: 12),
+
+              // "Anyone stand out?"
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Anyone stand out?',
+                  style: TextStyle(
+                    color: AppColors.text,
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+
+              // Description
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'There were $totalCount people in this room. Give a quick thumbs up to anyone you\'d like to study with again.',
+                  style: const TextStyle(color: AppColors.hint, fontSize: 13),
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Search bar
+              TextField(
+                onChanged: (v) => setState(() => _searchQuery = v),
+                decoration: InputDecoration(
+                  hintText: 'Search participants by name',
+                  prefixIcon: const Icon(
+                    Icons.search_outlined,
+                    color: AppColors.hint,
+                  ),
+                  filled: true,
+                  fillColor: AppColors.background,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(color: AppColors.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                      color: AppColors.accent,
+                      width: 2,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+
+              // Participant list
+              ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: MediaQuery.of(context).size.height * 0.3,
+                ),
+                child: filtered.isEmpty
+                    ? const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 16),
+                        child: Text(
+                          'No participants found.',
+                          style: TextStyle(
+                            color: AppColors.hint,
+                            fontSize: 13,
+                          ),
+                        ),
+                      )
+                    : ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: filtered.length,
+                        itemBuilder: (ctx, i) {
+                          final participant = filtered[i];
+                          final isHost =
+                              participant.userId == widget.session.hostId;
+                          final isSelf =
+                              participant.userId == widget.currentUserId;
+
+                          if (isHost || isSelf) {
+                            return _HostParticipantTile(
+                              participant: participant,
+                              showHostBadge: isHost,
+                            );
+                          }
+                          return _RateableTile(
+                            participant: participant,
+                            isThumbsUp: _thumbsUp[participant.userId] ?? false,
+                            onToggle: () => setState(() {
+                              _thumbsUp[participant.userId] =
+                                  !(_thumbsUp[participant.userId] ?? false);
+                            }),
+                          );
+                        },
+                      ),
+              ),
+              const SizedBox(height: 16),
+
+              // Submit button
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.accent,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Ratings submitted!'),
+                      backgroundColor: AppColors.success,
+                    ),
+                  );
+                },
+                child: const Text('Submit Rating'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HostParticipantTile extends StatelessWidget {
+  final Participant participant;
+  final bool showHostBadge;
+
+  const _HostParticipantTile({
+    required this.participant,
+    required this.showHostBadge,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: _ParticipantAvatar(
+        username: participant.username,
+        photoUrl: participant.profilePhotoUrl,
+        radius: 20,
+      ),
+      title: Text(
+        participant.username,
+        style: const TextStyle(
+          color: AppColors.text,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      trailing: showHostBadge
+          ? Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: AppColors.accent,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Text(
+                'Host',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+}
+
+class _RateableTile extends StatelessWidget {
+  final Participant participant;
+  final bool isThumbsUp;
+  final VoidCallback onToggle;
+
+  const _RateableTile({
+    required this.participant,
+    required this.isThumbsUp,
+    required this.onToggle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: _ParticipantAvatar(
+        username: participant.username,
+        photoUrl: participant.profilePhotoUrl,
+        radius: 20,
+      ),
+      title: Text(
+        participant.username,
+        style: const TextStyle(
+          color: AppColors.text,
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      trailing: IconButton(
+        icon: Icon(
+          isThumbsUp ? Icons.thumb_up : Icons.thumb_up_outlined,
+          color: isThumbsUp ? AppColors.accent : AppColors.hint,
+        ),
+        onPressed: onToggle,
       ),
     );
   }

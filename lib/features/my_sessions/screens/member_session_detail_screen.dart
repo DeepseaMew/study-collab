@@ -851,6 +851,21 @@ class _SelfParticipantTile extends StatelessWidget {
           fontWeight: FontWeight.w500,
         ),
       ),
+      trailing: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        decoration: BoxDecoration(
+          color: AppColors.hint,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: const Text(
+          'ME',
+          style: TextStyle(
+            color: Colors.white,
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ),
     );
   }
 }
