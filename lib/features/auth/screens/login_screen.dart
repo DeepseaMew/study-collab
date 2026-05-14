@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:flutter_svg/flutter_svg.dart';
+
 import '../../../core/constants/route_names.dart';
 import '../../../core/errors/app_exceptions.dart';
 import '../../../core/theme/app_theme.dart';
@@ -103,18 +105,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                   children: [
                     // ── Logo ───────────────────────────────────────────────
                     Center(
-                      child: Container(
-                        width: 72,
-                        height: 72,
-                        decoration: BoxDecoration(
-                          color: AppColors.accent.withValues(alpha: 0.1),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: const Icon(
-                          Icons.menu_book_rounded,
-                          size: 40,
-                          color: AppColors.accent,
-                        ),
+                      child: SvgPicture.asset(
+                        'assets/images/Logo.svg',
+                        width: 60,
+                        height: 60,
                       ),
                     ),
                     const SizedBox(height: 20),
