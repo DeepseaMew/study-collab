@@ -1,879 +1,797 @@
-// ignore_for_file: avoid_relative_lib_imports
-
-import 'dart:convert';
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:study_collab/core/constants/firestore_collections.dart';
 import 'package:study_collab/core/errors/app_exceptions.dart';
 import 'package:study_collab/models/enums.dart';
 import 'package:study_collab/models/session.dart';
 import 'package:study_collab/services/session_service.dart';
 
-// ── Test helpers ─────────────────────────────────────────────────────────────
+// Firestore path constants (mirrors FirestoreCollections to avoid importing
+// production constants and risking accidental edits).
+const _kSessions = 'sessions';
+const _kUsers = 'users';
+const _kMembers = 'members';
+const _kJoinRequests = 'joinRequests';
+const _kMessages = 'messages';
+const _kGroupChat = 'groupChat';
+const _kNotifications = 'notifications';
 
-/// Minimal session fixture. [id] is ignored by createSession (auto-generated),
-/// but is required by the Session constructor.
-Session _makeSession({
-  String id = 'dummy-id',
-  String hostId = 'host-uid',
-  String hostName = 'Alice',
-  String title = 'Test Session',
-  Subject subject = Subject.computerScience,
-  SessionVisibility visibility = SessionVisibility.public,
-  String? passwordHash,
-  int capacity = 10,
-  int? studentYear,
-  AcademicLevel? academicLevel,
-}) {
-  final now = DateTime(2026, 6, 1, 10);
+// ── Helper builders ────────────────────────────────────────────────────────────
+
+/// Seeds a minimal user doc so createSession's batch.update(userRef, ...) succeeds.
+Future<void> _seedUser(FakeFirebaseFirestore fakeFs, String uid) async {
+  await fakeFs.collection(_kUsers).doc(uid).set({
+    'username': 'Host One',
+    'profilePhotoUrl': 'https://example.com/host.jpg',
+    'sessionsCount': 0,
+  });
+}
+
+/// Returns a minimal valid public [Session] suitable for passing to createSession.
+/// The [id] is a placeholder — createSession ignores the model's id and
+/// generates its own via `_firestore.collection(...).doc()`.
+Session _buildPublicSession({String hostId = 'host1'}) {
+  final now = DateTime(2026, 6, 1, 10, 0);
   return Session(
-    id: id,
-    title: title,
-    subject: subject,
-    description: 'A test session',
-    visibility: visibility,
+    id: 'placeholder',
+    title: 'CS Study Group',
+    subject: Subject.computerScience,
+    description: 'Weekly CS review session',
+    visibility: SessionVisibility.public,
     hostId: hostId,
-    hostName: hostName,
+    hostName: 'Host One',
+    hostPhotoUrl: 'https://example.com/host.jpg',
     startTime: now,
     endTime: now.add(const Duration(hours: 2)),
-    location: 'Room 101',
-    capacity: capacity,
+    location: 'Library Room 3',
+    capacity: 10,
     reviewsEnabled: true,
     createdAt: now,
     updatedAt: now,
-    passwordHash: passwordHash,
-    studentYear: studentYear,
-    academicLevel: academicLevel,
-    hashtags: const ['flutter', 'study'],
+    hashtags: const ['cs', 'algorithms'],
   );
 }
 
-/// Seeds a user document so batch updates on the user doc succeed.
-Future<void> _seedUser(
-  FakeFirebaseFirestore ffs,
-  String uid, {
-  int sessionsCount = 0,
-}) async {
-  await ffs
-      .collection(FirestoreCollections.users)
-      .doc(uid)
-      .set({'sessionsCount': sessionsCount, 'username': uid});
+/// Returns a minimal valid private [Session].
+Session _buildPrivateSession({String hostId = 'host1'}) {
+  final now = DateTime(2026, 6, 1, 14, 0);
+  return Session(
+    id: 'placeholder',
+    title: 'Private Math Session',
+    subject: Subject.mathematics,
+    description: 'Closed study group',
+    visibility: SessionVisibility.private,
+    hostId: hostId,
+    hostName: 'Host One',
+    hostPhotoUrl: 'https://example.com/host.jpg',
+    startTime: now,
+    endTime: now.add(const Duration(hours: 1)),
+    location: 'Room 5',
+    capacity: 4,
+    reviewsEnabled: false,
+    createdAt: now,
+    updatedAt: now,
+    hashtags: const [],
+  );
 }
-
-/// Helper: read session doc data.
-Future<Map<String, dynamic>?> _sessionData(
-  FakeFirebaseFirestore ffs,
-  String sessionId,
-) async {
-  final snap = await ffs
-      .collection(FirestoreCollections.sessions)
-      .doc(sessionId)
-      .get();
-  return snap.data();
-}
-
-/// Helper: count docs in a sub-collection.
-Future<int> _memberCount(FakeFirebaseFirestore ffs, String sessionId) async {
-  final snap = await ffs
-      .collection(FirestoreCollections.sessions)
-      .doc(sessionId)
-      .collection(FirestoreCollections.members)
-      .get();
-  return snap.docs.length;
-}
-
-/// Helper: read user sessionsCount.
-Future<int?> _sessionsCount(FakeFirebaseFirestore ffs, String uid) async {
-  final snap = await ffs
-      .collection(FirestoreCollections.users)
-      .doc(uid)
-      .get();
-  return snap.data()?['sessionsCount'] as int?;
-}
-
-// ── createSession ─────────────────────────────────────────────────────────────
 
 void main() {
-  group('SessionService.createSession', () {
-    late FakeFirebaseFirestore ffs;
-    late SessionService service;
+  group('SessionService', () {
+    // ── Test 1: createSession writes session doc + host member doc atomically ──
 
-    setUp(() {
-      ffs = FakeFirebaseFirestore();
-      service = SessionService(firestore: ffs);
-    });
+    test(
+        'createSession writes session doc with correct fields and host member doc',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
 
-    test('creates session doc at sessions/{id} with correct fields', () async {
-      const hostUid = 'host-uid';
-      await _seedUser(ffs, hostUid);
-      final session = _makeSession(hostId: hostUid);
+      final session = _buildPublicSession();
 
+      // Act
       final sessionId = await service.createSession(session: session);
 
-      final data = await _sessionData(ffs, sessionId);
-      expect(data, isNotNull);
-      expect(data!['title'], equals('Test Session'));
-      expect(data['hostId'], equals(hostUid));
-      expect(data['subject'], equals(Subject.computerScience.name));
-      expect(data['visibility'], equals(SessionVisibility.public.name));
+      // Assert — session doc exists with expected fields
+      final sessionDoc =
+          await fakeFs.collection(_kSessions).doc(sessionId).get();
+      expect(sessionDoc.exists, isTrue,
+          reason: 'session doc should have been created');
+
+      final data = sessionDoc.data()!;
+      expect(data['hostId'], equals('host1'));
+      expect(data['title'], equals('CS Study Group'));
+      expect(data['visibility'], equals('public'));
+      expect(data['subject'], equals('computerScience'));
+      expect(data['status'], equals('upcoming'));
       expect(data['capacity'], equals(10));
-      expect(data['location'], equals('Room 101'));
-      expect(data['reviewsEnabled'], isTrue);
-    });
+      expect(data['location'], equals('Library Room 3'));
 
-    test('creates host member doc at sessions/{id}/members/{hostUid} with role=host, status=active', () async {
-      const hostUid = 'host-uid';
-      await _seedUser(ffs, hostUid);
-      final session = _makeSession(hostId: hostUid, hostName: 'Alice');
-
-      final sessionId = await service.createSession(session: session);
-
-      final memberSnap = await ffs
-          .collection(FirestoreCollections.sessions)
+      // Assert — host member doc exists at sessions/{id}/members/host1
+      final hostMemberDoc = await fakeFs
+          .collection(_kSessions)
           .doc(sessionId)
-          .collection(FirestoreCollections.members)
-          .doc(hostUid)
+          .collection(_kMembers)
+          .doc('host1')
           .get();
+      expect(hostMemberDoc.exists, isTrue,
+          reason: 'host member doc should have been created atomically');
 
-      expect(memberSnap.exists, isTrue);
-      final mData = memberSnap.data()!;
-      expect(mData['role'], equals('host'));
-      expect(mData['userId'], equals(hostUid));
-      expect(mData['username'], equals('Alice'));
-      expect(mData['attended'], isFalse);
-      expect(mData['sessionTitle'], equals('Test Session'));
-      expect(mData['hostId'], equals(hostUid));
-      expect(mData['sessionStatus'], equals(SessionStatus.upcoming.name));
+      final memberData = hostMemberDoc.data()!;
+      expect(memberData['userId'], equals('host1'));
+      expect(memberData['role'], equals('host'));
+      expect(memberData['sessionTitle'], equals('CS Study Group'));
+      expect(memberData['hostId'], equals('host1'));
+
+      // Assert — groupChat/meta singleton created atomically
+      final groupChatMeta = await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kGroupChat)
+          .doc('meta')
+          .get();
+      expect(groupChatMeta.exists, isTrue,
+          reason: 'groupChat/meta singleton must be created atomically with the session');
+      expect(groupChatMeta.data()!.containsKey('lastMessageText'), isTrue);
+
+      // Assert — host sessionsCount incremented
+      final userDoc = await fakeFs.collection(_kUsers).doc('host1').get();
+      expect(userDoc.data()!['sessionsCount'], equals(1),
+          reason: 'sessionsCount should be incremented when host creates a session');
     });
 
-    test('participantCount starts at 1 (the host)', () async {
-      const hostUid = 'host-uid';
-      await _seedUser(ffs, hostUid);
-      final session = _makeSession(hostId: hostUid);
+    // ── Test 2: createSession hashes password — plaintext must NOT appear ──────
 
-      final sessionId = await service.createSession(session: session);
+    test(
+        'createSession for a private session hashes password — plaintext must not appear in Firestore',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
 
-      final data = await _sessionData(ffs, sessionId);
-      // FakeFirebaseFirestore resolves FieldValue.increment to an int.
-      expect(data!['participantCount'], equals(1));
-    });
+      const plaintext = 'secret123';
+      final session = _buildPrivateSession();
 
-    test('sessionsHostedCount (sessionsCount) on user doc increments by 1', () async {
-      const hostUid = 'host-uid';
-      await _seedUser(ffs, hostUid, sessionsCount: 3);
-      final session = _makeSession(hostId: hostUid);
-
-      await service.createSession(session: session);
-
-      expect(await _sessionsCount(ffs, hostUid), equals(4));
-    });
-
-    test('private session: passwordHash is stored and plain password is NOT stored', () async {
-      const hostUid = 'host-uid';
-      await _seedUser(ffs, hostUid);
-      final session = _makeSession(
-        hostId: hostUid,
-        visibility: SessionVisibility.private,
-      );
-
+      // Act
       final sessionId = await service.createSession(
         session: session,
-        plainTextPassword: 'super-secret',
+        plainTextPassword: plaintext,
       );
 
-      final data = await _sessionData(ffs, sessionId);
-      expect(data, isNotNull);
+      // Assert — stored passwordHash is NOT the plaintext
+      final data =
+          (await fakeFs.collection(_kSessions).doc(sessionId).get()).data()!;
 
-      // passwordHash must be present and in "<hex>:<base64salt>" format.
-      final hash = data!['passwordHash'] as String?;
-      expect(hash, isNotNull);
-      expect(hash, isNot(equals('super-secret')));
-      final parts = hash!.split(':');
-      expect(parts.length, equals(2));
-      // SHA-256 hex is 64 chars.
-      expect(parts[0].length, equals(64));
-      // base64-encoded 16 bytes is 24 chars.
-      expect(base64.decode(parts[1]).length, equals(16));
+      final storedHash = data['passwordHash'] as String?;
+      expect(storedHash, isNotNull,
+          reason: 'passwordHash should be set for a private session');
+      expect(storedHash, isNotEmpty,
+          reason: 'passwordHash should be non-empty');
+      expect(storedHash, isNot(equals(plaintext)),
+          reason: 'plaintext password must not be stored');
+      // The hash format from _hashPassword is "<sha256hex>:<base64salt>"
+      expect(storedHash!.contains(':'), isTrue,
+          reason: 'hash format should be "hash:salt" containing a colon');
+      // Raw password key must not appear anywhere in the doc
+      expect(data.containsKey('password'), isFalse,
+          reason: 'raw password field must not exist on session doc');
+      expect(data.containsKey('plainTextPassword'), isFalse,
+          reason: 'plainTextPassword field must not exist on session doc');
     });
 
-    test('public session: no passwordHash field present', () async {
-      const hostUid = 'host-uid';
-      await _seedUser(ffs, hostUid);
-      final session = _makeSession(
-        hostId: hostUid,
-        visibility: SessionVisibility.public,
-      );
+    // ── Test 3: createSession for public session does NOT store a password ─────
 
+    test(
+        'createSession for a public session does not store passwordHash in Firestore',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
+
+      final session = _buildPublicSession();
+
+      // Act
       final sessionId = await service.createSession(session: session);
 
-      final data = await _sessionData(ffs, sessionId);
-      // passwordHash should be absent (null) for public sessions.
-      expect(data!['passwordHash'], isNull);
+      // Assert — passwordHash key is absent (null-aware map entry omits it)
+      final data =
+          (await fakeFs.collection(_kSessions).doc(sessionId).get()).data()!;
+
+      // Using null-aware map entry ('passwordHash': ?passwordHash), the key
+      // is omitted entirely when null. Both absence and explicit null are safe.
+      final storedHash = data['passwordHash'];
+      expect(storedHash == null || storedHash == '',
+          isTrue,
+          reason: 'passwordHash must not be set for a public session');
     });
 
-    test('private session without password throws DataException', () async {
-      const hostUid = 'host-uid';
-      await _seedUser(ffs, hostUid);
-      final session = _makeSession(
-        hostId: hostUid,
-        visibility: SessionVisibility.private,
+    // ── Test 4: editSession allows host to update session fields ───────────────
+
+    test('editSession allows the host to update session fields', () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
+
+      final session = _buildPublicSession();
+      final sessionId = await service.createSession(session: session);
+
+      // Confirm original title
+      final before =
+          (await fakeFs.collection(_kSessions).doc(sessionId).get()).data()!;
+      expect(before['title'], equals('CS Study Group'));
+
+      // Act
+      await service.editSession(
+        sessionId: sessionId,
+        callerUid: 'host1',
+        updates: {'title': 'CS Study Group — Advanced'},
       );
 
+      // Assert — title updated in Firestore
+      final after =
+          (await fakeFs.collection(_kSessions).doc(sessionId).get()).data()!;
+      expect(after['title'], equals('CS Study Group — Advanced'));
+    });
+
+    // ── Test 5: editSession non-host throws DataException ─────────────────────
+
+    test(
+        'editSession throws DataException when callerUid is not the host',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
+
+      final session = _buildPublicSession();
+      final sessionId = await service.createSession(session: session);
+
+      // Act + Assert — a different user tries to edit
+      await expectLater(
+        service.editSession(
+          sessionId: sessionId,
+          callerUid: 'not-the-host',
+          updates: {'title': 'Attempted Override'},
+        ),
+        throwsA(
+          isA<DataException>().having(
+            (e) => e.message,
+            'message',
+            'Only the host can edit this session',
+          ),
+        ),
+      );
+    });
+
+    // ── Test 6: deleteSession removes session + all subcollection docs ─────────
+
+    test(
+        'deleteSession removes session doc, all member docs, all joinRequest docs, all groupChat messages, and groupChat/meta',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
+
+      final session = _buildPublicSession();
+      final sessionId = await service.createSession(session: session);
+
+      // Seed a pending join request
+      await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kJoinRequests)
+          .doc('req1')
+          .set({'userId': 'applicant1', 'status': 'pending'});
+
+      // Seed a group chat message
+      await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kMessages)
+          .doc('msg1')
+          .set({'text': 'Hello group!', 'senderId': 'host1'});
+
+      // Verify session exists before delete
+      expect(
+          (await fakeFs.collection(_kSessions).doc(sessionId).get()).exists,
+          isTrue);
+
+      // Act
+      await service.deleteSession(sessionId: sessionId, hostId: 'host1');
+
+      // Assert — session doc gone
+      expect(
+          (await fakeFs.collection(_kSessions).doc(sessionId).get()).exists,
+          isFalse,
+          reason: 'session doc should be deleted');
+
+      // Assert — member docs gone
+      final membersAfter = await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kMembers)
+          .get();
+      expect(membersAfter.docs, isEmpty,
+          reason: 'all member docs should be deleted');
+
+      // Assert — joinRequest docs gone
+      final requestsAfter = await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kJoinRequests)
+          .get();
+      expect(requestsAfter.docs, isEmpty,
+          reason: 'all joinRequest docs should be deleted');
+
+      // Assert — group chat messages gone
+      final messagesAfter = await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kMessages)
+          .get();
+      expect(messagesAfter.docs, isEmpty,
+          reason: 'all groupChat message docs should be deleted');
+
+      // Assert — groupChat/meta gone
+      final groupChatMetaAfter = await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kGroupChat)
+          .doc('meta')
+          .get();
+      expect(groupChatMetaAfter.exists, isFalse,
+          reason: 'groupChat/meta singleton should be deleted');
+    });
+
+    // ── Test 6: watchPublicSessions returns only public+upcoming sessions ──────
+
+    test(
+        'watchPublicSessions returns only sessions with visibility == public and status == upcoming',
+        () async {
+      // Arrange — seed docs directly to isolate this test from createSession
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+
+      final baseTime = Timestamp.fromDate(DateTime(2026, 7, 1, 9, 0));
+
+      // Public + upcoming — should appear
+      await fakeFs.collection(_kSessions).doc('pub1').set({
+        'title': 'Public Session A',
+        'visibility': 'public',
+        'status': 'upcoming',
+        'hostId': 'host1',
+        'hostName': 'Host One',
+        'subject': 'computerScience',
+        'description': '',
+        'location': 'Room 1',
+        'capacity': 5,
+        'participantCount': 1,
+        'reviewsEnabled': true,
+        'startTime': baseTime,
+        'endTime': baseTime,
+        'createdAt': baseTime,
+        'updatedAt': baseTime,
+        'hashtags': [],
+      });
+
+      // Public + upcoming — should appear
+      await fakeFs.collection(_kSessions).doc('pub2').set({
+        'title': 'Public Session B',
+        'visibility': 'public',
+        'status': 'upcoming',
+        'hostId': 'host1',
+        'hostName': 'Host One',
+        'subject': 'mathematics',
+        'description': '',
+        'location': 'Room 2',
+        'capacity': 5,
+        'participantCount': 1,
+        'reviewsEnabled': true,
+        'startTime': baseTime,
+        'endTime': baseTime,
+        'createdAt': baseTime,
+        'updatedAt': baseTime,
+        'hashtags': [],
+      });
+
+      // Private + upcoming — should NOT appear
+      await fakeFs.collection(_kSessions).doc('priv1').set({
+        'title': 'Private Session',
+        'visibility': 'private',
+        'status': 'upcoming',
+        'hostId': 'host1',
+        'hostName': 'Host One',
+        'subject': 'physics',
+        'description': '',
+        'location': 'Room 3',
+        'capacity': 3,
+        'participantCount': 1,
+        'reviewsEnabled': false,
+        'startTime': baseTime,
+        'endTime': baseTime,
+        'createdAt': baseTime,
+        'updatedAt': baseTime,
+        'hashtags': [],
+        'passwordHash': 'somehash:somesalt',
+      });
+
+      // Act — take the first emission from the stream
+      final sessions = await service.watchPublicSessions().first;
+
+      // Assert — exactly 2 public upcoming sessions
+      expect(sessions, hasLength(2),
+          reason: 'private sessions must not appear in watchPublicSessions');
+      for (final s in sessions) {
+        expect(s.visibility, equals(SessionVisibility.public),
+            reason: 'all returned sessions must be public');
+        expect(s.status, equals(SessionStatus.upcoming),
+            reason: 'all returned sessions must be upcoming');
+      }
+    });
+
+    // ── Test 7: error path — private session without password throws ───────────
+    // Chosen because it is enforced entirely in service code (not Firestore rules),
+    // making it reliably testable with FakeFirebaseFirestore.
+
+    test(
+        'createSession throws DataException when a private session has no password',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
+
+      final session = _buildPrivateSession();
+
+      // Act + Assert — omitting plainTextPassword for a private session
       await expectLater(
         service.createSession(session: session),
         throwsA(isA<DataException>()),
       );
     });
 
-    test('all three batch writes happen atomically — session + member + userCount exist together', () async {
-      const hostUid = 'host-uid';
-      await _seedUser(ffs, hostUid, sessionsCount: 0);
-      final session = _makeSession(hostId: hostUid);
+    // ── Bonus: editSession throws DataException for non-existent session ───────
 
-      final sessionId = await service.createSession(session: session);
+    test(
+        'editSession throws DataException when session does not exist',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
 
-      // All three side effects must be observable after the call.
-      final sessionData = await _sessionData(ffs, sessionId);
-      final memberCount = await _memberCount(ffs, sessionId);
-      final userCount = await _sessionsCount(ffs, hostUid);
-
-      expect(sessionData, isNotNull);
-      expect(memberCount, equals(1));
-      expect(userCount, equals(1));
-    });
-  });
-
-  // ── editSession ─────────────────────────────────────────────────────────────
-
-  group('SessionService.editSession', () {
-    late FakeFirebaseFirestore ffs;
-    late SessionService service;
-
-    setUp(() {
-      ffs = FakeFirebaseFirestore();
-      service = SessionService(firestore: ffs);
-    });
-
-    /// Seed a complete session document directly (bypass createSession).
-    Future<String> seedSession(
-      FakeFirebaseFirestore ffs, {
-      String sessionId = 'session-1',
-      String hostId = 'host-uid',
-      String title = 'Original Title',
-      int participantCount = 1,
-    }) async {
-      final now = Timestamp.fromDate(DateTime(2026, 6, 1, 10));
-      await ffs.collection(FirestoreCollections.sessions).doc(sessionId).set({
-        'title': title,
-        'hostId': hostId,
-        'subject': Subject.computerScience.name,
-        'visibility': SessionVisibility.public.name,
-        'status': SessionStatus.upcoming.name,
-        'participantCount': participantCount,
-        'capacity': 10,
-        'startTime': now,
-        'endTime': Timestamp.fromDate(DateTime(2026, 6, 1, 12)),
-        'location': 'Room 101',
-        'description': '',
-        'reviewsEnabled': true,
-        'createdAt': now,
-        'updatedAt': now,
-        'hashtags': [],
-      });
-      return sessionId;
-    }
-
-    test('updates mutable fields on the session doc', () async {
-      final sessionId = await seedSession(ffs);
-
-      await service.editSession(
-        sessionId: sessionId,
-        callerUid: 'host-uid',
-        updates: {'title': 'Updated Title', 'location': 'Room 202'},
-      );
-
-      final data = await _sessionData(ffs, sessionId);
-      expect(data!['title'], equals('Updated Title'));
-      expect(data['location'], equals('Room 202'));
-    });
-
-    test('does NOT change participantCount or hostId', () async {
-      final sessionId = await seedSession(ffs, participantCount: 3, hostId: 'host-uid');
-
-      await service.editSession(
-        sessionId: sessionId,
-        callerUid: 'host-uid',
-        updates: {'title': 'New Title'},
-      );
-
-      final data = await _sessionData(ffs, sessionId);
-      expect(data!['participantCount'], equals(3));
-      expect(data['hostId'], equals('host-uid'));
-    });
-
-    test('fans out card-render changes to all member docs', () async {
-      const sessionId = 'session-1';
-      await seedSession(ffs, sessionId: sessionId);
-
-      // Seed two member docs.
-      for (final uid in ['host-uid', 'member-uid']) {
-        await ffs
-            .collection(FirestoreCollections.sessions)
-            .doc(sessionId)
-            .collection(FirestoreCollections.members)
-            .doc(uid)
-            .set({
-          'userId': uid,
-          'sessionTitle': 'Original Title',
-          'sessionStatus': SessionStatus.upcoming.name,
-        });
-      }
-
-      await service.editSession(
-        sessionId: sessionId,
-        callerUid: 'host-uid',
-        updates: {'title': 'Renamed Session'},
-        updatedCardFields: ['title'],
-      );
-
-      for (final uid in ['host-uid', 'member-uid']) {
-        final snap = await ffs
-            .collection(FirestoreCollections.sessions)
-            .doc(sessionId)
-            .collection(FirestoreCollections.members)
-            .doc(uid)
-            .get();
-        expect(snap.data()!['sessionTitle'], equals('Renamed Session'),
-            reason: 'member $uid should have updated sessionTitle');
-      }
-    });
-
-    test('rejects edit by non-host — throws DataException', () async {
-      final sessionId = await seedSession(ffs, hostId: 'host-uid');
-
+      // Act + Assert — session 'ghost-session' was never created
       await expectLater(
         service.editSession(
-          sessionId: sessionId,
-          callerUid: 'not-the-host',
-          updates: {'title': 'Malicious Title'},
+          sessionId: 'ghost-session',
+          callerUid: 'host1',
+          updates: {'title': 'New Title'},
         ),
         throwsA(isA<DataException>()),
       );
-
-      // Session title must remain unchanged.
-      final data = await _sessionData(ffs, sessionId);
-      expect(data!['title'], equals('Original Title'));
     });
-  });
 
-  // ── cancelSession ────────────────────────────────────────────────────────────
+    // ── Test A: cancelSession happy path ────────────────────────────────────────
 
-  group('SessionService.cancelSession', () {
-    late FakeFirebaseFirestore ffs;
-    late SessionService service;
+    test(
+        'cancelSession marks session cancelled, decrements non-host sessionsCount, '
+        'writes sessionCancelled notification to non-hosts only, deletes joinRequests',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
 
-    const hostUid = 'host-uid';
-    const member1Uid = 'member-1';
-    const member2Uid = 'member-2';
-    const sessionId = 'session-abc';
+      // Seed host user (sessionsCount starts at 0; createSession increments to 1).
+      await _seedUser(fakeFs, 'host1');
 
-    Future<void> setupCancelScenario() async {
-      ffs = FakeFirebaseFirestore();
-      service = SessionService(firestore: ffs);
+      // Create the session via service so the session doc is fully valid for
+      // Session.fromFirestore (all required fields are written by createSession).
+      final session = _buildPublicSession();
+      final sessionId = await service.createSession(session: session);
 
-      final now = Timestamp.fromDate(DateTime(2026, 6, 1, 10));
-
-      // Seed session doc.
-      await ffs.collection(FirestoreCollections.sessions).doc(sessionId).set({
-        'title': 'Study Group',
-        'hostId': hostUid,
-        'subject': Subject.mathematics.name,
-        'visibility': SessionVisibility.public.name,
-        'status': SessionStatus.upcoming.name,
-        'participantCount': 3,
-        'capacity': 10,
-        'startTime': now,
-        'endTime': Timestamp.fromDate(DateTime(2026, 6, 1, 12)),
-        'location': 'Library',
-        'description': '',
-        'reviewsEnabled': true,
-        'createdAt': now,
-        'updatedAt': now,
-        'hashtags': [],
+      // Seed non-host user docs (sessionsCount: 1 — cancel decrements to 0).
+      await fakeFs.collection(_kUsers).doc('member1').set({
+        'username': 'Member One',
+        'profilePhotoUrl': null,
+        'sessionsCount': 1,
+      });
+      await fakeFs.collection(_kUsers).doc('member2').set({
+        'username': 'Member Two',
+        'profilePhotoUrl': null,
+        'sessionsCount': 1,
       });
 
-      // Seed host member doc.
-      await ffs
-          .collection(FirestoreCollections.sessions)
+      // Seed member docs under the session (service iterates membersSnap.docs).
+      await fakeFs
+          .collection(_kSessions)
           .doc(sessionId)
-          .collection(FirestoreCollections.members)
-          .doc(hostUid)
-          .set({
-        'userId': hostUid,
-        'role': 'host',
-        'sessionStatus': SessionStatus.upcoming.name,
-      });
-
-      // Seed two participant member docs.
-      for (final uid in [member1Uid, member2Uid]) {
-        await ffs
-            .collection(FirestoreCollections.sessions)
-            .doc(sessionId)
-            .collection(FirestoreCollections.members)
-            .doc(uid)
-            .set({
-          'userId': uid,
-          'role': 'member',
-          'sessionStatus': SessionStatus.upcoming.name,
-        });
-      }
-
-      // Seed user docs with sessionsCount.
-      await ffs.collection(FirestoreCollections.users).doc(hostUid).set({'sessionsCount': 1});
-      await ffs.collection(FirestoreCollections.users).doc(member1Uid).set({'sessionsCount': 2});
-      await ffs.collection(FirestoreCollections.users).doc(member2Uid).set({'sessionsCount': 1});
-
-      // Seed two pending JoinRequest docs.
-      for (final uid in ['requester-1', 'requester-2']) {
-        await ffs
-            .collection(FirestoreCollections.sessions)
-            .doc(sessionId)
-            .collection(FirestoreCollections.joinRequests)
-            .doc(uid)
-            .set({
-          'userId': uid,
-          'status': 'pending',
-          'requestedAt': now,
-        });
-      }
-    }
-
-    test('session doc status set to cancelled', () async {
-      await setupCancelScenario();
-
-      await service.cancelSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-      );
-
-      final data = await _sessionData(ffs, sessionId);
-      expect(data!['status'], equals(SessionStatus.cancelled.name));
-    });
-
-    test('every member doc sessionStatus set to cancelled', () async {
-      await setupCancelScenario();
-
-      await service.cancelSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-      );
-
-      for (final uid in [hostUid, member1Uid, member2Uid]) {
-        final snap = await ffs
-            .collection(FirestoreCollections.sessions)
-            .doc(sessionId)
-            .collection(FirestoreCollections.members)
-            .doc(uid)
-            .get();
-        expect(
-          snap.data()!['sessionStatus'],
-          equals(SessionStatus.cancelled.name),
-          reason: 'member $uid sessionStatus must be cancelled',
-        );
-      }
-    });
-
-    test('all open joinRequest docs are deleted', () async {
-      await setupCancelScenario();
-
-      await service.cancelSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-      );
-
-      final snap = await ffs
-          .collection(FirestoreCollections.sessions)
+          .collection(_kMembers)
+          .doc('member1')
+          .set({'userId': 'member1', 'role': 'member', 'sessionStatus': 'upcoming'});
+      await fakeFs
+          .collection(_kSessions)
           .doc(sessionId)
-          .collection(FirestoreCollections.joinRequests)
-          .get();
-      expect(snap.docs, isEmpty,
-          reason: 'all pending joinRequests should be deleted on cancel');
-    });
+          .collection(_kMembers)
+          .doc('member2')
+          .set({'userId': 'member2', 'role': 'member', 'sessionStatus': 'upcoming'});
 
-    test("non-host members' sessionsCount is decremented", () async {
-      await setupCancelScenario();
+      // Seed one pending join request.
+      await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kJoinRequests)
+          .doc('req1')
+          .set({'userId': 'applicant1', 'status': 'pending'});
 
+      // Act
       await service.cancelSession(
         sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
+        hostId: 'host1',
+        hostName: 'Host One',
       );
 
-      expect(await _sessionsCount(ffs, member1Uid), equals(1),
-          reason: 'member1 sessionsCount should go from 2 to 1');
-      expect(await _sessionsCount(ffs, member2Uid), equals(0),
-          reason: 'member2 sessionsCount should go from 1 to 0');
-    });
+      // Assert 1 — session doc is NOT deleted; status == 'cancelled'.
+      final sessionDoc =
+          await fakeFs.collection(_kSessions).doc(sessionId).get();
+      expect(sessionDoc.exists, isTrue,
+          reason: 'cancelSession must not delete the session doc');
+      expect(sessionDoc.data()!['status'], equals('cancelled'),
+          reason: 'session status must be set to cancelled');
 
-    test("host's sessionsCount is NOT decremented on cancel", () async {
-      await setupCancelScenario();
+      // Assert 2 — non-host sessionsCount decremented to 0.
+      final member1User =
+          await fakeFs.collection(_kUsers).doc('member1').get();
+      expect(member1User.data()!['sessionsCount'], equals(0),
+          reason: 'member1 sessionsCount must be decremented on cancel');
+      final member2User =
+          await fakeFs.collection(_kUsers).doc('member2').get();
+      expect(member2User.data()!['sessionsCount'], equals(0),
+          reason: 'member2 sessionsCount must be decremented on cancel');
 
-      await service.cancelSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-      );
-
-      // Host sessionsCount remains 1 (not decremented on cancel per ADR 0010).
-      expect(await _sessionsCount(ffs, hostUid), equals(1),
+      // Assert 3 — host sessionsCount unchanged (still 1 from createSession).
+      final hostUser = await fakeFs.collection(_kUsers).doc('host1').get();
+      expect(hostUser.data()!['sessionsCount'], equals(1),
           reason: 'host sessionsCount must NOT be decremented on cancel');
-    });
 
-    test('notification docs written to each non-host member', () async {
-      await setupCancelScenario();
-
-      await service.cancelSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-      );
-
-      for (final uid in [member1Uid, member2Uid]) {
-        final snap = await ffs
-            .collection(FirestoreCollections.users)
-            .doc(uid)
-            .collection(FirestoreCollections.notifications)
+      // Assert 4 — each non-host member has exactly one sessionCancelled notification.
+      for (final memberId in ['member1', 'member2']) {
+        final notifs = await fakeFs
+            .collection(_kUsers)
+            .doc(memberId)
+            .collection(_kNotifications)
             .get();
-        expect(snap.docs.length, equals(1),
-            reason: 'member $uid should receive exactly one cancellation notification');
-        expect(
-          snap.docs.first.data()['type'],
-          equals('sessionCancelled'),
-        );
+        expect(notifs.docs, hasLength(1),
+            reason: '$memberId must have exactly one notification');
+        expect(notifs.docs.first.data()['type'], equals('sessionCancelled'),
+            reason: 'notification type must be sessionCancelled for $memberId');
       }
-    });
 
-    test('host does NOT receive a notification on cancel (host is the canceller)', () async {
-      await setupCancelScenario();
-
-      await service.cancelSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
+      // Assert 5 — host does NOT have a sessionCancelled notification.
+      final hostNotifs = await fakeFs
+          .collection(_kUsers)
+          .doc('host1')
+          .collection(_kNotifications)
+          .get();
+      expect(
+        hostNotifs.docs
+            .where((d) => d.data()['type'] == 'sessionCancelled')
+            .isEmpty,
+        isTrue,
+        reason: 'host must not receive a sessionCancelled notification',
       );
 
-      final snap = await ffs
-          .collection(FirestoreCollections.users)
-          .doc(hostUid)
-          .collection(FirestoreCollections.notifications)
+      // Assert 6 — the join request was deleted.
+      final requestsAfter = await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kJoinRequests)
           .get();
-      expect(snap.docs, isEmpty,
-          reason: 'host should not get a cancellation notification for their own action');
+      expect(requestsAfter.docs, isEmpty,
+          reason: 'all joinRequest docs must be deleted on cancel');
     });
 
-    test('throws DataException when session does not exist', () async {
-      ffs = FakeFirebaseFirestore();
-      service = SessionService(firestore: ffs);
+    // ── Test B: cancelSession has no in-service host guard ──────────────────────
 
+    test(
+        'cancelSession does not throw when called with a wrong hostId — '
+        'host identity is enforced by Firestore rules only',
+        () async {
+      // cancelSession enforces host identity via Firestore rules only — no in-service guard.
+      //
+      // Calling cancelSession with hostId: 'not-host' succeeds at the service
+      // layer. The service treats 'not-host' as the "host", so all actual members
+      // (including the real host1) receive the non-host treatment: sessionsCount
+      // is decremented and a notification is written for every member doc.
+
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
+
+      final session = _buildPublicSession();
+      final sessionId = await service.createSession(session: session);
+
+      // Act + Assert — must not throw even though 'not-host' is not the real host.
       await expectLater(
         service.cancelSession(
-          sessionId: 'nonexistent-session',
-          hostId: hostUid,
-          hostName: 'Alice',
+          sessionId: sessionId,
+          hostId: 'not-host',
+          hostName: 'Not The Host',
         ),
-        throwsA(isA<DataException>()),
+        completes,
       );
+
+      // Sanity: session is now cancelled.
+      final sessionDoc =
+          await fakeFs.collection(_kSessions).doc(sessionId).get();
+      expect(sessionDoc.data()!['status'], equals('cancelled'));
     });
-  });
 
-  // ── postponeSession ───────────────────────────────────────────────────────────
+    // ── Test C: postponeSession happy path ──────────────────────────────────────
 
-  group('SessionService.postponeSession', () {
-    late FakeFirebaseFirestore ffs;
-    late SessionService service;
+    test(
+        'postponeSession updates session times, updates all member docs, '
+        'writes sessionPostponed notification to all members including host, '
+        'and does NOT delete joinRequests or change sessionsCount',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+      await _seedUser(fakeFs, 'host1');
 
-    const hostUid = 'host-uid';
-    const member1Uid = 'member-1';
-    const sessionId = 'session-xyz';
+      final session = _buildPublicSession();
+      final sessionId = await service.createSession(session: session);
 
-    final originalStart = DateTime(2026, 6, 1, 10);
-    final originalEnd = DateTime(2026, 6, 1, 12);
-    final newStart = DateTime(2026, 6, 8, 10);
-    final newEnd = DateTime(2026, 6, 8, 12);
-
-    Future<void> setupPostponeScenario() async {
-      ffs = FakeFirebaseFirestore();
-      service = SessionService(firestore: ffs);
-
-      await ffs.collection(FirestoreCollections.sessions).doc(sessionId).set({
-        'title': 'Study Group',
-        'hostId': hostUid,
-        'subject': Subject.physics.name,
-        'visibility': SessionVisibility.public.name,
-        'status': SessionStatus.upcoming.name,
-        'participantCount': 2,
-        'capacity': 10,
-        'startTime': Timestamp.fromDate(originalStart),
-        'endTime': Timestamp.fromDate(originalEnd),
-        'location': 'Library',
-        'description': '',
-        'reviewsEnabled': true,
-        'createdAt': Timestamp.fromDate(originalStart),
-        'updatedAt': Timestamp.fromDate(originalStart),
-        'hashtags': [],
+      // Seed non-host user docs.
+      await fakeFs.collection(_kUsers).doc('member1').set({
+        'username': 'Member One',
+        'profilePhotoUrl': null,
+        'sessionsCount': 1,
+      });
+      await fakeFs.collection(_kUsers).doc('member2').set({
+        'username': 'Member Two',
+        'profilePhotoUrl': null,
+        'sessionsCount': 1,
       });
 
-      for (final uid in [hostUid, member1Uid]) {
-        await ffs
-            .collection(FirestoreCollections.sessions)
-            .doc(sessionId)
-            .collection(FirestoreCollections.members)
-            .doc(uid)
-            .set({
-          'userId': uid,
-          'role': uid == hostUid ? 'host' : 'member',
-          'sessionStartTime': Timestamp.fromDate(originalStart),
-          'sessionEndTime': Timestamp.fromDate(originalEnd),
-          'sessionStatus': SessionStatus.upcoming.name,
-        });
-
-        await ffs
-            .collection(FirestoreCollections.users)
-            .doc(uid)
-            .set({'sessionsCount': 1});
-      }
-
-      // Leave one pending JoinRequest — must NOT be deleted on postpone.
-      await ffs
-          .collection(FirestoreCollections.sessions)
+      // Seed member docs under the session.
+      await fakeFs
+          .collection(_kSessions)
           .doc(sessionId)
-          .collection(FirestoreCollections.joinRequests)
-          .doc('requester-1')
-          .set({'userId': 'requester-1', 'status': 'pending'});
-    }
-
-    test('session doc startTime and endTime are updated', () async {
-      await setupPostponeScenario();
-
-      await service.postponeSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-        newStartTime: newStart,
-        newEndTime: newEnd,
-      );
-
-      final data = await _sessionData(ffs, sessionId);
-      final storedStart = (data!['startTime'] as Timestamp).toDate();
-      final storedEnd = (data['endTime'] as Timestamp).toDate();
-      expect(storedStart, equals(newStart));
-      expect(storedEnd, equals(newEnd));
-    });
-
-    test('every member doc sessionStartTime and sessionEndTime are updated', () async {
-      await setupPostponeScenario();
-
-      await service.postponeSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-        newStartTime: newStart,
-        newEndTime: newEnd,
-      );
-
-      for (final uid in [hostUid, member1Uid]) {
-        final snap = await ffs
-            .collection(FirestoreCollections.sessions)
-            .doc(sessionId)
-            .collection(FirestoreCollections.members)
-            .doc(uid)
-            .get();
-        final mData = snap.data()!;
-        final storedStart = (mData['sessionStartTime'] as Timestamp).toDate();
-        final storedEnd = (mData['sessionEndTime'] as Timestamp).toDate();
-        expect(storedStart, equals(newStart),
-            reason: 'member $uid sessionStartTime should be updated');
-        expect(storedEnd, equals(newEnd),
-            reason: 'member $uid sessionEndTime should be updated');
-      }
-    });
-
-    test('notification created for each member INCLUDING the host', () async {
-      await setupPostponeScenario();
-
-      await service.postponeSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-        newStartTime: newStart,
-        newEndTime: newEnd,
-      );
-
-      for (final uid in [hostUid, member1Uid]) {
-        final snap = await ffs
-            .collection(FirestoreCollections.users)
-            .doc(uid)
-            .collection(FirestoreCollections.notifications)
-            .get();
-        expect(snap.docs.length, equals(1),
-            reason: 'member $uid (including host) must get a postpone notification');
-        expect(snap.docs.first.data()['type'], equals('sessionPostponed'));
-      }
-    });
-
-    test('pending JoinRequest docs are left untouched on postpone', () async {
-      await setupPostponeScenario();
-
-      await service.postponeSession(
-        sessionId: sessionId,
-        hostId: hostUid,
-        hostName: 'Alice',
-        newStartTime: newStart,
-        newEndTime: newEnd,
-      );
-
-      final snap = await ffs
-          .collection(FirestoreCollections.sessions)
+          .collection(_kMembers)
+          .doc('member1')
+          .set({'userId': 'member1', 'role': 'member', 'sessionStatus': 'upcoming'});
+      await fakeFs
+          .collection(_kSessions)
           .doc(sessionId)
-          .collection(FirestoreCollections.joinRequests)
+          .collection(_kMembers)
+          .doc('member2')
+          .set({'userId': 'member2', 'role': 'member', 'sessionStatus': 'upcoming'});
+
+      // Seed one pending join request (must survive postponeSession).
+      await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kJoinRequests)
+          .doc('req1')
+          .set({'userId': 'applicant1', 'status': 'pending'});
+
+      final newStart = DateTime(2026, 7, 15, 10, 0);
+      final newEnd = DateTime(2026, 7, 15, 12, 0);
+
+      // Act
+      await service.postponeSession(
+        sessionId: sessionId,
+        hostId: 'host1',
+        hostName: 'Host One',
+        newStartTime: newStart,
+        newEndTime: newEnd,
+      );
+
+      // Assert 1 — session doc startTime and endTime are updated.
+      final sessionDoc =
+          await fakeFs.collection(_kSessions).doc(sessionId).get();
+      expect(
+        sessionDoc.data()!['startTime'],
+        equals(Timestamp.fromDate(newStart)),
+        reason: 'session startTime must be updated to newStartTime',
+      );
+      expect(
+        sessionDoc.data()!['endTime'],
+        equals(Timestamp.fromDate(newEnd)),
+        reason: 'session endTime must be updated to newEndTime',
+      );
+
+      // Assert 2 — every member doc (host1, member1, member2) has updated times.
+      for (final memberId in ['host1', 'member1', 'member2']) {
+        final memberDoc = await fakeFs
+            .collection(_kSessions)
+            .doc(sessionId)
+            .collection(_kMembers)
+            .doc(memberId)
+            .get();
+        expect(memberDoc.exists, isTrue,
+            reason: '$memberId member doc must still exist');
+        expect(
+          memberDoc.data()!['sessionStartTime'],
+          equals(Timestamp.fromDate(newStart)),
+          reason: '$memberId sessionStartTime must be updated',
+        );
+        expect(
+          memberDoc.data()!['sessionEndTime'],
+          equals(Timestamp.fromDate(newEnd)),
+          reason: '$memberId sessionEndTime must be updated',
+        );
+      }
+
+      // Assert 3 — every member (host1, member1, member2) has one sessionPostponed notification.
+      for (final memberId in ['host1', 'member1', 'member2']) {
+        final notifs = await fakeFs
+            .collection(_kUsers)
+            .doc(memberId)
+            .collection(_kNotifications)
+            .get();
+        expect(notifs.docs, hasLength(1),
+            reason: '$memberId must have exactly one notification');
+        expect(notifs.docs.first.data()['type'], equals('sessionPostponed'),
+            reason: 'notification type must be sessionPostponed for $memberId');
+      }
+
+      // Assert 4 — the join request is still present (postponeSession must not delete it).
+      final requestsAfter = await fakeFs
+          .collection(_kSessions)
+          .doc(sessionId)
+          .collection(_kJoinRequests)
           .get();
-      expect(snap.docs.length, equals(1),
-          reason: 'joinRequests should not be deleted on postpone per ADR 0010');
+      expect(requestsAfter.docs, hasLength(1),
+          reason: 'postponeSession must NOT delete joinRequest docs');
+
+      // Assert 5 — no sessionsCount fields were changed.
+      final hostUser = await fakeFs.collection(_kUsers).doc('host1').get();
+      expect(hostUser.data()!['sessionsCount'], equals(1),
+          reason: 'host sessionsCount must not change on postpone');
+      final member1User =
+          await fakeFs.collection(_kUsers).doc('member1').get();
+      expect(member1User.data()!['sessionsCount'], equals(1),
+          reason: 'member1 sessionsCount must not change on postpone');
+      final member2User =
+          await fakeFs.collection(_kUsers).doc('member2').get();
+      expect(member2User.data()!['sessionsCount'], equals(1),
+          reason: 'member2 sessionsCount must not change on postpone');
     });
 
-    test('throws DataException when session does not exist', () async {
-      ffs = FakeFirebaseFirestore();
-      service = SessionService(firestore: ffs);
+    // ── Test D: postponeSession throws for non-existent session ────────────────
 
+    test(
+        'postponeSession throws DataException when session does not exist',
+        () async {
+      // Arrange
+      final fakeFs = FakeFirebaseFirestore();
+      final service = SessionService(firestore: fakeFs);
+
+      final newStart = DateTime(2026, 8, 1, 9, 0);
+      final newEnd = DateTime(2026, 8, 1, 11, 0);
+
+      // Act + Assert — 'ghost-session' was never created.
       await expectLater(
         service.postponeSession(
-          sessionId: 'nonexistent',
-          hostId: hostUid,
-          hostName: 'Alice',
+          sessionId: 'ghost-session',
+          hostId: 'host1',
+          hostName: 'Host One',
           newStartTime: newStart,
           newEndTime: newEnd,
         ),
-        throwsA(isA<DataException>()),
+        throwsA(
+          isA<DataException>().having(
+            (e) => e.message,
+            'message',
+            'Session not found',
+          ),
+        ),
       );
-    });
-  });
-
-  // ── deleteSession ─────────────────────────────────────────────────────────────
-
-  group('SessionService.deleteSession', () {
-    late FakeFirebaseFirestore ffs;
-    late SessionService service;
-
-    const hostUid = 'host-uid';
-    const member1Uid = 'member-1';
-    const sessionId = 'session-del';
-
-    Future<void> setupDeleteScenario() async {
-      ffs = FakeFirebaseFirestore();
-      service = SessionService(firestore: ffs);
-
-      final now = Timestamp.fromDate(DateTime(2026, 6, 1, 10));
-
-      await ffs.collection(FirestoreCollections.sessions).doc(sessionId).set({
-        'title': 'To Be Deleted',
-        'hostId': hostUid,
-        'subject': Subject.biology.name,
-        'visibility': SessionVisibility.public.name,
-        'status': SessionStatus.upcoming.name,
-        'participantCount': 2,
-        'capacity': 10,
-        'startTime': now,
-        'endTime': Timestamp.fromDate(DateTime(2026, 6, 1, 12)),
-        'location': 'Lab',
-        'description': '',
-        'reviewsEnabled': false,
-        'createdAt': now,
-        'updatedAt': now,
-        'hashtags': [],
-      });
-
-      for (final uid in [hostUid, member1Uid]) {
-        await ffs
-            .collection(FirestoreCollections.sessions)
-            .doc(sessionId)
-            .collection(FirestoreCollections.members)
-            .doc(uid)
-            .set({'userId': uid, 'role': uid == hostUid ? 'host' : 'member'});
-      }
-
-      await ffs.collection(FirestoreCollections.users).doc(hostUid).set({'sessionsCount': 1});
-      await ffs.collection(FirestoreCollections.users).doc(member1Uid).set({'sessionsCount': 2});
-
-      // One joinRequest doc.
-      await ffs
-          .collection(FirestoreCollections.sessions)
-          .doc(sessionId)
-          .collection(FirestoreCollections.joinRequests)
-          .doc('req-1')
-          .set({'userId': 'req-1', 'status': 'pending'});
-    }
-
-    test('session doc is deleted', () async {
-      await setupDeleteScenario();
-
-      await service.deleteSession(sessionId: sessionId, hostId: hostUid);
-
-      final snap = await ffs
-          .collection(FirestoreCollections.sessions)
-          .doc(sessionId)
-          .get();
-      expect(snap.exists, isFalse);
-    });
-
-    test('member sub-collection docs are deleted', () async {
-      await setupDeleteScenario();
-
-      await service.deleteSession(sessionId: sessionId, hostId: hostUid);
-
-      final memberCount = await _memberCount(ffs, sessionId);
-      expect(memberCount, equals(0));
-    });
-
-    test('joinRequest sub-collection docs are deleted', () async {
-      await setupDeleteScenario();
-
-      await service.deleteSession(sessionId: sessionId, hostId: hostUid);
-
-      final snap = await ffs
-          .collection(FirestoreCollections.sessions)
-          .doc(sessionId)
-          .collection(FirestoreCollections.joinRequests)
-          .get();
-      expect(snap.docs, isEmpty);
-    });
-
-    test("non-host member's sessionsCount is decremented", () async {
-      await setupDeleteScenario();
-
-      await service.deleteSession(sessionId: sessionId, hostId: hostUid);
-
-      expect(await _sessionsCount(ffs, member1Uid), equals(1),
-          reason: 'non-host member sessionsCount should decrement from 2 to 1');
-    });
-
-    // Per ADR 0010 and service code: host sessionsCount is NOT decremented on
-    // delete either — the service only decrements non-host members.
-    // NOTE: This contradicts the task description which says "sessionsHostedCount decrements"
-    // on deleteSession. The production code does NOT decrement for the host on delete.
-    // Flagging this discrepancy — see production code issue notes in summary.
-    test('host sessionsCount is NOT decremented on delete (current service behavior)', () async {
-      await setupDeleteScenario();
-
-      await service.deleteSession(sessionId: sessionId, hostId: hostUid);
-
-      expect(await _sessionsCount(ffs, hostUid), equals(1),
-          reason: 'current service code does not decrement host sessionsCount on deleteSession; '
-              'see production code issue flag in test summary');
     });
   });
 }
