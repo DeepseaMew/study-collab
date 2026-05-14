@@ -31,7 +31,6 @@ build/
 # Firebase — contains API keys, never commit
 google-services.json
 GoogleService-Info.plist
-firebase_options.dart
 
 # Misc
 *.log
