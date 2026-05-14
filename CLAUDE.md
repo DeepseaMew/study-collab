@@ -44,6 +44,10 @@ UI never calls Firestore directly. Path is always
 4. **Chat** — must be friends to chat (1-on-1).
 5. **Calendar** — view your sessions in week/month view.
 6. **Filters** — search sessions by subject, student year, academic level.
+7. **Ratings** — thumbs-up rating between session members after a session
+   ends. Doc ID is deterministic: `{sessionId}_{raterId}_{ratedUserId}`.
+   Atomic write: rating doc + increment rated user's `thumbsUpCount` /
+   `thumbsDownCount` / `totalRatingsCount`. Ratings are immutable.
 
 ## Data layer rules
 - All Firestore reads/writes go through `lib/services/` — never call
@@ -123,10 +127,3 @@ Each agent reads this file plus `PROJECT_STRUCTURE.md` on every spawn.
 You (the human) act as the orchestrator: pick the right agent(s),
 delegate, integrate their outputs.
 
-## Project status
-Beta 0.2 in progress.
-- ✅ Auth (signup, login, email verification, domain check)
-- ✅ Profile feature (own profile + other-user profile, avatar upload)
-- ✅ Friend system (full)
-- ⚙️ Session service — next major task
-- ⚙️ Participation, chat, notification services — pending

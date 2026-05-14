@@ -496,8 +496,10 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
                   style: tt.labelLarge?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 6),
+                // CHANGED: initialValue → value so the dropdown is controlled
+                // and re-renders when _academicLevel changes via setState.
                 DropdownButtonFormField<AcademicLevel>(
-                  initialValue: _academicLevel,
+                  value: _academicLevel,
                   items: AcademicLevel.values
                       .map(
                         (l) => DropdownMenuItem(
@@ -514,8 +516,10 @@ class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
                   style: tt.labelLarge?.copyWith(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 6),
+                // CHANGED: initialValue → value so the year dropdown reflects
+                // the clamped _studentYear after level changes.
                 DropdownButtonFormField<int>(
-                  initialValue: _studentYear,
+                  value: _studentYear,
                   items: List.generate(maxYear, (i) => i + 1)
                       .map(
                         (y) =>

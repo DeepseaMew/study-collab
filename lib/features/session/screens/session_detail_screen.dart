@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -14,6 +15,9 @@ import 'package:study_collab/models/join_request.dart';
 import 'package:study_collab/models/participant.dart';
 import 'package:study_collab/models/session.dart';
 import 'package:study_collab/services/participation_service.dart';
+import 'package:study_collab/services/session_service.dart';
+
+enum _HostAction { edit, delete, copyLink }
 
 class SessionDetailScreen extends ConsumerWidget {
   final String sessionId;
@@ -129,11 +133,98 @@ class _SessionDetailBody extends ConsumerWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),
+            // CHANGED: replaced single edit icon with a three-action PopupMenuButton
             actions: [
               if (isHost)
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined, color: AppColors.text),
-                  onPressed: () => context.push('/session/${session.id}/edit'),
+                PopupMenuButton<_HostAction>(
+                  icon: const Icon(Icons.more_vert, color: AppColors.text),
+                  onSelected: (action) async {
+                    switch (action) {
+                      case _HostAction.edit:
+                        context.push('/session/${session.id}/edit');
+
+                      case _HostAction.delete:
+                        final confirmed = await showDialog<bool>(
+                          context: context,
+                          builder: (ctx) => AlertDialog(
+                            title: Text(
+                              'Delete Session?',
+                              style: Theme.of(ctx).textTheme.titleLarge,
+                            ),
+                            content: Text(
+                              'This will permanently remove the session and all its data. Members will be notified.',
+                              style: Theme.of(ctx).textTheme.bodyMedium,
+                            ),
+                            actions: [
+                              OutlinedButton(
+                                onPressed: () => Navigator.pop(ctx, false),
+                                child: const Text('Cancel'),
+                              ),
+                              ElevatedButton(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFFE53E3E),
+                                  foregroundColor: Colors.white,
+                                ),
+                                onPressed: () => Navigator.pop(ctx, true),
+                                child: const Text('Delete'),
+                              ),
+                            ],
+                          ),
+                        );
+                        if (confirmed != true) return;
+                        try {
+                          await ref
+                              .read(sessionServiceProvider)
+                              .deleteSession(
+                                sessionId: session.id,
+                                hostId: session.hostId,
+                              );
+                        } catch (e) {
+                          if (!context.mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                e is AppException
+                                    ? e.message
+                                    : 'Failed to delete session',
+                              ),
+                              backgroundColor: AppColors.error,
+                            ),
+                          );
+                          return;
+                        }
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Session deleted')),
+                        );
+                        context.pop();
+
+                      case _HostAction.copyLink:
+                        await Clipboard.setData(
+                          ClipboardData(
+                            text: 'studycollab://session/${session.id}',
+                          ),
+                        );
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Link copied!')),
+                        );
+                    }
+                  },
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: _HostAction.edit,
+                      child: Text('✏️ Edit Session'),
+                    ),
+                    PopupMenuItem(
+                      value: _HostAction.delete,
+                      child: Text('🗑️ Delete Session'),
+                    ),
+                    PopupMenuItem(
+                      value: _HostAction.copyLink,
+                      child: Text('🔗 Copy Invite Link'),
+                    ),
+                  ],
                 ),
             ],
           ),
@@ -294,8 +385,9 @@ class _SessionDetailBody extends ConsumerWidget {
                     const SizedBox(height: 24),
                   ],
 
-                  // ── Action button row (non-host) ────────────────────────────
-                  if (!isHost) _JoinActionRow(session: session, me: me),
+                  // ── Action button row ───────────────────────────────────────
+                  // CHANGED: shown for all users; host case renders Message Group
+                  _JoinActionRow(session: session, me: me),
                 ],
               ),
             ),
@@ -852,8 +944,18 @@ class _JoinActionRow extends ConsumerWidget {
           backgroundColor: AppColors.success,
           textColor: Colors.white,
         );
+      // CHANGED: host bottom area shows Message Group button (chat pending)
       case JoinStatus.host:
-        return const SizedBox.shrink();
+        return ElevatedButton.icon(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.secondary,
+            foregroundColor: AppColors.hint,
+            minimumSize: const Size(double.infinity, 48),
+          ),
+          onPressed: () => context.push('/session/${session.id}/chat'),
+          icon: const Icon(Icons.message_outlined, size: 18),
+          label: const Text('Message Group'),
+        );
       case JoinStatus.pending:
         return const _StatusChip(
           label: 'Pending...',

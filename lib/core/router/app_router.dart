@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:study_collab/models/session.dart';
-import 'package:study_collab/core/widgets/coming_soon_screen.dart';
 import '../../features/auth/screens/splash_screen.dart';
 import '../../features/auth/screens/login_screen.dart';
 import '../../features/auth/screens/signup_screen.dart';
@@ -23,6 +22,10 @@ import '../../features/session/screens/members_list_screen.dart';
 import '../../features/session/screens/requests_screen.dart';
 import '../../features/my_sessions/screens/host_session_detail_screen.dart';
 import '../../features/my_sessions/screens/member_session_detail_screen.dart';
+import '../../features/chat/screens/messages_screen.dart';
+import '../../features/chat/screens/dm_list_screen.dart';
+import '../../features/chat/screens/dm_screen.dart';
+import '../../features/chat/screens/session_chat_screen.dart';
 import '../widgets/main_shell.dart';
 
 /// Riverpod provider for the app router.
@@ -77,28 +80,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             path: '/my-sessions',
             builder: (c, s) => const MySessionsScreen(),
           ),
-          GoRoute(
-            path: '/messages',
-            builder: (c, s) => const ComingSoonScreen(
-              title: 'Messages',
-              subtitle: 'Chat and messaging are coming soon.',
-            ),
-          ),
+          GoRoute(path: '/messages', builder: (c, s) => const MessagesScreen()),
           GoRoute(path: '/profile', builder: (c, s) => const ProfileScreen()),
           GoRoute(
             path: '/user/:userId',
             builder: (c, s) =>
                 OtherUserProfileScreen(userId: s.pathParameters['userId']!),
-          ),
-          GoRoute(
-            path: '/my-sessions/member/:id',
-            builder: (c, s) =>
-                MemberSessionDetailScreen(sessionId: s.pathParameters['id']!),
-          ),
-          GoRoute(
-            path: '/my-sessions/:id',
-            builder: (c, s) =>
-                HostSessionDetailScreen(sessionId: s.pathParameters['id']!),
           ),
           // CHANGED: day-drill-down route — stays inside ShellRoute so bottom nav shows
           GoRoute(
@@ -109,6 +96,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             },
           ),
         ],
+      ),
+
+      // ── My-sessions detail screens (No bottom bar) ────────────────────────
+      // CHANGED: moved out of ShellRoute so their keys never collide with
+      // /my-sessions list route.  These screens have their own AppBar + back
+      // button and do not need the shell's bottom navigation bar.
+      GoRoute(
+        path: '/my-sessions/member/:id',
+        builder: (c, s) =>
+            MemberSessionDetailScreen(sessionId: s.pathParameters['id']!),
+      ),
+      GoRoute(
+        path: '/my-sessions/:id',
+        builder: (c, s) =>
+            HostSessionDetailScreen(sessionId: s.pathParameters['id']!),
       ),
 
       // ── Session flows (No bottom bar) ──────────────────────────────────────
@@ -132,6 +134,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/session/:id/requests',
         builder: (c, s) => RequestsScreen(sessionId: s.pathParameters['id']!),
+      ),
+
+      // ── Chat: DM list & DM conversation (no bottom nav) ───────────────────
+      GoRoute(path: '/messages/dm', builder: (c, s) => const DmListScreen()),
+      GoRoute(
+        path: '/messages/dm/:conversationId',
+        builder: (c, s) =>
+            DmScreen(conversationId: s.pathParameters['conversationId']!),
+      ),
+
+      // ── Chat: Session group chat (no bottom nav) ───────────────────────────
+      GoRoute(
+        path: '/session/:id/chat',
+        builder: (c, s) =>
+            SessionChatScreen(sessionId: s.pathParameters['id']!),
       ),
 
       // ── Other ──────────────────────────────────────────────────────────────
