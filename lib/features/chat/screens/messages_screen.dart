@@ -7,8 +7,18 @@ import '../../../core/theme/app_theme.dart';
 import '../../../features/auth/providers/auth_providers.dart';
 import '../../../features/chat/providers/chat_providers.dart';
 import '../../../models/dm_conversation.dart';
+import '../../../models/friend.dart';
 import '../../../models/group_conversation.dart';
 import '../../../services/chat_service.dart';
+import '../../../services/friend_service.dart';
+
+// Friends stream used as a display-name fallback for DM conversations whose
+// Firestore doc predates the otherUserName denormalization.
+final _msgFriendsProvider = StreamProvider<List<Friend>>((ref) {
+  final uid = ref.watch(authStateProvider).valueOrNull?.id ?? '';
+  if (uid.isEmpty) return Stream.value(const []);
+  return ref.watch(friendServiceProvider).watchFriends(uid);
+});
 
 class MessagesScreen extends ConsumerStatefulWidget {
   const MessagesScreen({super.key});
@@ -143,10 +153,10 @@ class _IndividualTab extends ConsumerWidget {
 
   List<DmConversation> _filtered(List<DmConversation> all) {
     if (query.isEmpty) return all;
-    // TODO(firebase-specialist): filter by display name once it is
-    // denormalized on the chats doc; for now filter by conversation id.
     return all
-        .where((c) => c.id.toLowerCase().contains(query.toLowerCase()))
+        .where(
+          (c) => c.otherUserName.toLowerCase().contains(query.toLowerCase()),
+        )
         .toList();
   }
 
@@ -193,14 +203,26 @@ class _IndividualTab extends ConsumerWidget {
               const Divider(height: 1, indent: 76, color: AppColors.border),
           itemBuilder: (ctx, i) {
             final c = filtered[i];
-            // Derive the other user's uid from participantIds.
             final otherUid = c.participantIds.firstWhere(
               (id) => id != myUid,
-              orElse: () => c.id,
+              orElse: () => '',
             );
+            // Resolve display name: denormalized field → friends list → fallback
+            String displayLabel = c.otherUserName.isNotEmpty
+                ? c.otherUserName
+                : '';
+            if (displayLabel.isEmpty && otherUid.isNotEmpty) {
+              final friends =
+                  ref.watch(_msgFriendsProvider).valueOrNull ?? const [];
+              final match = friends
+                  .where((f) => f.friendUserId == otherUid)
+                  .firstOrNull;
+              displayLabel = match?.username ?? '';
+            }
+            if (displayLabel.isEmpty) displayLabel = 'Unknown User';
             return _DmTile(
               convo: c,
-              displayLabel: otherUid,
+              displayLabel: displayLabel,
               myUid: myUid,
               timeAgo: c.lastMessageAt != null
                   ? _timeAgo(c.lastMessageAt!)

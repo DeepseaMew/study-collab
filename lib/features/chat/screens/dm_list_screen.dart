@@ -9,7 +9,17 @@ import '../../../core/theme/app_theme.dart';
 import '../../../features/auth/providers/auth_providers.dart';
 import '../../../features/chat/providers/chat_providers.dart';
 import '../../../models/dm_conversation.dart';
+import '../../../models/friend.dart';
 import '../../../services/chat_service.dart';
+import '../../../services/friend_service.dart';
+
+// Local provider: current user's accepted friends, used for display-name fallback
+// when otherUserName is not yet denormalized on older conversation docs.
+final _dmFriendsProvider = StreamProvider<List<Friend>>((ref) {
+  final uid = ref.watch(authStateProvider).valueOrNull?.id ?? '';
+  if (uid.isEmpty) return Stream.value(const []);
+  return ref.watch(friendServiceProvider).watchFriends(uid);
+});
 
 class DmListScreen extends ConsumerStatefulWidget {
   const DmListScreen({super.key});
@@ -30,11 +40,10 @@ class _DmListScreenState extends ConsumerState<DmListScreen> {
 
   List<DmConversation> _filtered(List<DmConversation> all) {
     if (_query.isEmpty) return all;
-    // Filter by otherParticipantId since userName is not denormalized on DM docs.
-    // TODO(firebase-specialist): denormalize otherUserName on chats doc so
-    //   search works by display name rather than uid.
     return all
-        .where((c) => c.id.toLowerCase().contains(_query.toLowerCase()))
+        .where(
+          (c) => c.otherUserName.toLowerCase().contains(_query.toLowerCase()),
+        )
         .toList();
   }
 
@@ -118,7 +127,7 @@ class _DmListScreenState extends ConsumerState<DmListScreen> {
 
 // ── Conversation tile ─────────────────────────────────────────────────────────
 
-class _ConvoTile extends StatelessWidget {
+class _ConvoTile extends ConsumerWidget {
   final DmConversation convo;
   final String myUid;
   final VoidCallback onTap;
@@ -129,7 +138,6 @@ class _ConvoTile extends StatelessWidget {
     required this.onTap,
   });
 
-  /// Derive the other participant's uid from the conversation id.
   String get _otherUid {
     if (myUid.isEmpty) return '';
     return convo.participantIds.firstWhere(
@@ -147,15 +155,26 @@ class _ConvoTile extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final tt = Theme.of(context).textTheme;
     final hasUnread = convo.unreadCountForMe > 0;
-    // Display the other user's uid initials until firebase-specialist
-    // denormalizes the display name onto the chats doc (see follow-ups).
-    final displayLabel = _otherUid.isNotEmpty ? _otherUid : convo.id;
-    final initial = displayLabel.isNotEmpty
-        ? displayLabel[0].toUpperCase()
-        : '?';
+
+    // CHANGED: resolve display name — otherUserName (denormalized) first,
+    // then friends list fallback, then "Unknown User". Never show raw UID.
+    final otherUid = _otherUid;
+    String displayLabel = convo.otherUserName.isNotEmpty
+        ? convo.otherUserName
+        : '';
+    if (displayLabel.isEmpty && otherUid.isNotEmpty) {
+      final friends = ref.watch(_dmFriendsProvider).valueOrNull ?? const [];
+      final match = friends.where((f) => f.friendUserId == otherUid).firstOrNull;
+      displayLabel = match?.username ?? '';
+    }
+    // CHANGED: final fallback — never expose a raw Firestore UID to the user
+    if (displayLabel.isEmpty) displayLabel = 'Unknown User';
+
+    // CHANGED: initial letter comes from the resolved name, not the UID
+    final initial = displayLabel[0].toUpperCase();
 
     return ListTile(
       onTap: onTap,
