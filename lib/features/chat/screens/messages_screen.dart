@@ -7,6 +7,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../features/auth/providers/auth_providers.dart';
 import '../../../features/chat/providers/chat_providers.dart';
 import '../../../models/dm_conversation.dart';
+import '../../../models/group_conversation.dart';
 import '../../../services/chat_service.dart';
 
 class MessagesScreen extends ConsumerStatefulWidget {
@@ -341,19 +342,171 @@ class _DmTile extends StatelessWidget {
 }
 
 // ── Groups Tab ────────────────────────────────────────────────────────────────
-// Groups list requires a service method to fetch group conversations for the
-// current user (watchMyGroupConversations). This does not yet exist in
-// ChatService — see follow-ups for firebase-specialist.
 
-class _GroupsTab extends StatelessWidget {
+class _GroupsTab extends ConsumerWidget {
   const _GroupsTab();
+
+  String _timeAgo(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return DateFormat('MMM d').format(dt);
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final asyncGroups = ref.watch(userGroupConversationsProvider);
+
+    return asyncGroups.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, _) => _EmptyState(
+        icon: Icons.error_outline,
+        title: 'Something went wrong',
+        subtitle: 'Could not load group chats. Please try again.',
+      ),
+      data: (groups) {
+        if (groups.isEmpty) {
+          return _EmptyState(
+            icon: Icons.group_outlined,
+            title: 'No group chats yet',
+            subtitle: 'Join a session to access its group chat',
+          );
+        }
+        return ListView.separated(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          itemCount: groups.length,
+          separatorBuilder: (_, i) =>
+              const Divider(height: 1, indent: 76, color: AppColors.border),
+          itemBuilder: (ctx, i) {
+            final g = groups[i];
+            return _GroupTile(
+              group: g,
+              timeAgo: g.lastMessageAt != null
+                  ? _timeAgo(g.lastMessageAt!)
+                  : '',
+              onTap: () => context.push('/session/${g.sessionId}/chat'),
+            );
+          },
+        );
+      },
+    );
+  }
+}
+
+class _GroupTile extends StatelessWidget {
+  final GroupConversation group;
+  final String timeAgo;
+  final VoidCallback onTap;
+
+  const _GroupTile({
+    required this.group,
+    required this.timeAgo,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return _EmptyState(
-      icon: Icons.group_outlined,
-      title: 'Group chats coming soon',
-      subtitle: 'Join a session to access its group chat',
+    final tt = Theme.of(context).textTheme;
+    final hasUnread = group.unreadCountForMe > 0;
+    final initial = group.sessionTitle.isNotEmpty
+        ? group.sessionTitle[0].toUpperCase()
+        : 'G';
+
+    return ListTile(
+      onTap: onTap,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      leading: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          CircleAvatar(
+            radius: 26,
+            backgroundColor: AppColors.secondary,
+            child: Text(
+              initial,
+              style: const TextStyle(
+                color: AppColors.accent,
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+              ),
+            ),
+          ),
+          if (hasUnread)
+            Positioned(
+              right: -3,
+              top: -3,
+              child: Container(
+                width: 20,
+                height: 20,
+                decoration: const BoxDecoration(
+                  color: AppColors.accent,
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    '${group.unreadCountForMe}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+      title: Row(
+        children: [
+          Expanded(
+            child: Text(
+              group.sessionTitle,
+              style: tt.labelLarge?.copyWith(
+                fontWeight: hasUnread ? FontWeight.w700 : FontWeight.w500,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          if (timeAgo.isNotEmpty)
+            Text(
+              timeAgo,
+              style: tt.labelSmall?.copyWith(
+                color: hasUnread ? AppColors.accent : AppColors.hint,
+              ),
+            ),
+        ],
+      ),
+      subtitle: Row(
+        children: [
+          Expanded(
+            child: Text(
+              group.lastMessageText ?? 'No messages yet',
+              style: tt.bodyMedium?.copyWith(
+                color: hasUnread ? AppColors.text : AppColors.hint,
+                fontWeight: hasUnread ? FontWeight.w500 : FontWeight.w400,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: group.sessionSubject.color.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              group.sessionSubject.displayName,
+              style: tt.labelSmall?.copyWith(
+                color: group.sessionSubject.color,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

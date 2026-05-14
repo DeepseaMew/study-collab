@@ -25,6 +25,7 @@ import '../../features/my_sessions/screens/member_session_detail_screen.dart';
 import '../../features/chat/screens/messages_screen.dart';
 import '../../features/chat/screens/dm_list_screen.dart';
 import '../../features/chat/screens/dm_screen.dart';
+import '../../features/chat/screens/session_chat_screen.dart';
 import '../widgets/main_shell.dart';
 
 /// Riverpod provider for the app router.
@@ -141,6 +142,13 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/messages/dm/:conversationId',
         builder: (c, s) =>
             DmScreen(conversationId: s.pathParameters['conversationId']!),
+      ),
+
+      // ── Chat: Session group chat (no bottom nav) ───────────────────────────
+      GoRoute(
+        path: '/session/:id/chat',
+        builder: (c, s) =>
+            SessionChatScreen(sessionId: s.pathParameters['id']!),
       ),
 
       // ── Other ──────────────────────────────────────────────────────────────
