@@ -5,7 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../../../core/constants/route_names.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../services/auth_service.dart';
-import '../../auth/providers/auth_providers.dart';    
+import '../../auth/providers/auth_providers.dart';
+import '../../profile/screens/profile_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -79,7 +80,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   style: tt.bodyMedium?.copyWith(color: AppColors.hint),
                 ),
                 trailing: TextButton(
-                  onPressed: () => context.push('/profile'),
+                  onPressed: () {
+                    final appUser =
+                        ref.read(currentUserProvider).asData?.value;
+                    if (appUser == null) return;
+                    showModalBottomSheet(
+                      context: context,
+                      isScrollControlled: true,
+                      backgroundColor: Colors.transparent,
+                      builder: (_) => EditProfileSheet(user: appUser),
+                    );
+                  },
                   child: const Text(
                     'Edit Profile',
                     style: TextStyle(
