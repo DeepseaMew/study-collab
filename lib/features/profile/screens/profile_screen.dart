@@ -62,7 +62,7 @@ class _ProfileScreenState extends ConsumerState<ProfileScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => _EditProfileSheet(user: user),
+      builder: (_) => EditProfileSheet(user: user),
     );
   }
 
@@ -378,15 +378,15 @@ class _RatingStatItem extends StatelessWidget {
 
 // ── Edit Profile Bottom Sheet ─────────────────────────────────────────────────
 
-class _EditProfileSheet extends ConsumerStatefulWidget {
+class EditProfileSheet extends ConsumerStatefulWidget {
   final AppUser user;
-  const _EditProfileSheet({required this.user});
+  const EditProfileSheet({super.key, required this.user});
 
   @override
-  ConsumerState<_EditProfileSheet> createState() => _EditProfileSheetState();
+  ConsumerState<EditProfileSheet> createState() => _EditProfileSheetState();
 }
 
-class _EditProfileSheetState extends ConsumerState<_EditProfileSheet> {
+class _EditProfileSheetState extends ConsumerState<EditProfileSheet> {
   late final TextEditingController _nameCtrl;
   late final TextEditingController _facultyCtrl;
   late final TextEditingController _bioCtrl;
